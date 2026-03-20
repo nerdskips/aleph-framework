@@ -1,8 +1,13 @@
 # =============================================================================
 # Zuper Agent Framework — Example Agent Config
 # =============================================================================
-# This is the MINIMUM config to boot an agent.
-# Everything not listed here uses framework defaults (see schema.py).
+# MINIMUM config to boot an agent.
+# Everything not listed here uses production-validated defaults.
+#
+# Default tiers:
+#   ALWAYS ON:  session, messaging, llm, api, debug, text normalization
+#   DEFAULT ON: human, guardrails, sdk.sessions, sdk.guardrails, disclaimer
+#   DEFAULT OFF: habits, follow_up, media, queue, sdk.handoffs, dry_run
 # =============================================================================
 
 client_id: "example"
@@ -14,45 +19,56 @@ agent:
   model: "openai/gpt-4.1-mini"
   system_prompt_file: "prompts/system.md"
 
+# --- SDK 0.12 native features ------------------------------------------------
+# sdk.sessions: ON by default (Redis conversation history)
+# sdk.guardrails: ON by default (tripwire system in parallel with LLM)
+# sdk.handoffs: OFF by default (single-agent for now)
+
+# --- Debug & Observability (ON by default — full auditability) ----------------
+# Uncomment to customize:
+# debug:
+#   tracing:
+#     enabled: true
+#     export_to: "console"       # or "braintrust", "opentelemetry"
+#     sample_rate: 1.0           # trace everything
+#   logging:
+#     level: "INFO"              # DEBUG for development
+#     format: "json"             # structured logs
+#   verbose_errors: true         # stack traces in dev
+#   dry_run: false               # true = don't send messages (testing)
+
 # --- API server ---------------------------------------------------------------
 api:
   port: 8000
 
-# --- Session (using defaults: buffer 8s, history 3h, antispam 120s) ----------
-# session:
-#   buffer_timeout: 8
-#   history_ttl: 10800
-
-# --- LLM gateway (defaults to Bifrost on localhost:8080) ----------------------
-# llm:
-#   gateway_url: "http://bifrost:8080/v1"
-
-# --- Guardrails (none for echo bot — messages pass through to LLM) -----------
-# guardrails:
-#   input_patterns: []
-#   output_rules: []
-
-# --- Human-in-the-loop (disabled for echo bot) --------------------------------
+# --- Human-in-the-loop (DEFAULT ON but disabled for echo bot) -----------------
 human:
   enabled: false
 
-# --- Habits (disabled for echo bot) ------------------------------------------
-habits:
-  enabled: false
+# --- Habits (DEFAULT OFF) -----------------------------------------------------
+# habits:
+#   enabled: true
+#   dedup_threshold: 0.020
 
-# --- Follow-up (disabled for echo bot) ----------------------------------------
-follow_up:
-  enabled: false
+# --- Follow-up (DEFAULT OFF) --------------------------------------------------
+# follow_up:
+#   enabled: true
+#   steps:
+#     - delay_minutes: 10
+#       message: "Oi {name}, posso te ajudar com mais alguma coisa?"
+#     - delay_minutes: 30
+#       message: "Ainda estou por aqui se precisar!"
 
-# --- Media (disabled for echo bot) --------------------------------------------
-media:
-  enabled: false
+# --- Media (DEFAULT OFF) ------------------------------------------------------
+# media:
+#   enabled: true
+#   supported_types: ["audio", "image", "pdf"]
 
-# --- Queue (disabled for echo bot) --------------------------------------------
-queue:
-  enabled: false
+# --- Queue (DEFAULT OFF) ------------------------------------------------------
+# queue:
+#   enabled: true
 
-# --- Messaging (minimal — just send responses) --------------------------------
+# --- Messaging (ALWAYS ON — using all defaults) --------------------------------
 messaging:
   disclaimer:
     text: "Echo Bot — Zuper Agent Framework test"
