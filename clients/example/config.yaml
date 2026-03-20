@@ -1,0 +1,65 @@
+# =============================================================================
+# Zuper Agent Framework — Example Agent Config
+# =============================================================================
+# This is the MINIMUM config to boot an agent.
+# Everything not listed here uses framework defaults (see schema.py).
+# =============================================================================
+
+client_id: "example"
+
+# --- Agent identity (only 'name' is required) --------------------------------
+agent:
+  name: "Echo Bot"
+  description: "Test agent for framework validation"
+  model: "openai/gpt-4.1-mini"
+  system_prompt_file: "prompts/system.md"
+
+# --- API server ---------------------------------------------------------------
+api:
+  port: 8000
+
+# --- Session (using defaults: buffer 8s, history 3h, antispam 120s) ----------
+# session:
+#   buffer_timeout: 8
+#   history_ttl: 10800
+
+# --- LLM gateway (defaults to Bifrost on localhost:8080) ----------------------
+# llm:
+#   gateway_url: "http://bifrost:8080/v1"
+
+# --- Guardrails (none for echo bot — messages pass through to LLM) -----------
+# guardrails:
+#   input_patterns: []
+#   output_rules: []
+
+# --- Human-in-the-loop (disabled for echo bot) --------------------------------
+human:
+  enabled: false
+
+# --- Habits (disabled for echo bot) ------------------------------------------
+habits:
+  enabled: false
+
+# --- Follow-up (disabled for echo bot) ----------------------------------------
+follow_up:
+  enabled: false
+
+# --- Media (disabled for echo bot) --------------------------------------------
+media:
+  enabled: false
+
+# --- Queue (disabled for echo bot) --------------------------------------------
+queue:
+  enabled: false
+
+# --- Messaging (minimal — just send responses) --------------------------------
+messaging:
+  disclaimer:
+    text: "Echo Bot — Zuper Agent Framework test"
+
+# --- Tools (echo tool for testing) --------------------------------------------
+tools:
+  - module: "echo_tools"
+
+# --- Data files (none for echo bot) -------------------------------------------
+data_files: []
