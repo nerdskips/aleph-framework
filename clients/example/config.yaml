@@ -73,9 +73,27 @@ messaging:
   disclaimer:
     text: "Echo Bot — Zuper Agent Framework test"
 
-# --- Tools (echo tool for testing) --------------------------------------------
+# --- Tools --------------------------------------------------------------------
+# Two modes: 'code' (Python) and 'webhook' (N8N/HTTP, zero code)
 tools:
-  - module: "echo_tools"
+  # Code tool — Python module in tools/ folder
+  - name: "echo_message"
+    type: "code"
+    module: "echo_tools"
+
+  # Webhook tool example (uncomment to test with N8N):
+  # - name: "consultar_dados"
+  #   type: "webhook"
+  #   description: "Consulta dados do cliente"
+  #   webhook_url: "http://n8n:5678/webhook/dados"
+  #   parameters:
+  #     acao:
+  #       type: "string"
+  #       default: "consultar"
+  #       hidden: true
+  #     phone:
+  #       type: "string"
+  #       description: "Telefone do cliente"
 
 # --- Data files (none for echo bot) -------------------------------------------
 data_files: []

@@ -159,6 +159,10 @@ def _import_module_from_path(module_name: str, tools_dir: Path) -> Any:
 def load_tools(config: FrameworkConfig) -> list[Any]:
     """Load all tools defined in the client's config.
 
+    Supports two modes:
+      - type='code': imports Python module from client's tools/ folder
+      - type='webhook': generates @function_tool from YAML webhook definition
+
     Args:
         config: Validated FrameworkConfig
 
@@ -166,35 +170,52 @@ def load_tools(config: FrameworkConfig) -> list[Any]:
         Flat list of tool objects ready to pass to Agent(tools=[...])
 
     Raises:
-        ImportError: if a tool module can't be found or imported
+        ImportError: if a code tool module can't be found or imported
         AttributeError: if an explicitly named function doesn't exist
     """
-    tools_dir = config.client_dir / "tools"
-
-    if not tools_dir.is_dir():
-        if config.tools:
-            raise FileNotFoundError(
-                f"Tools directory not found: {tools_dir}\n"
-                f"Config references {len(config.tools)} tool module(s) but directory doesn't exist."
-            )
-        return []
+    from core.registry.schema import ToolType
+    from core.tools.webhook import generate_webhook_tools
 
     all_tools = []
 
-    for tool_ref in config.tools:
-        module = _import_module_from_path(tool_ref.module, tools_dir)
-        extracted = _extract_tools_from_module(module, tool_ref.functions)
+    # --- Webhook tools (generated from YAML, zero code) ---
+    webhook_refs = [t for t in config.tools if t.type == ToolType.WEBHOOK]
+    if webhook_refs:
+        webhook_tools = generate_webhook_tools(webhook_refs)
+        all_tools.extend(webhook_tools)
 
-        if not extracted:
-            # Not an error — just a warning (module might have no tools yet)
-            import warnings
-            warnings.warn(
-                f"No tools found in module '{tool_ref.module}'. "
-                f"Ensure functions are decorated with @function_tool.",
-                stacklevel=2,
+    # --- Code tools (Python modules in client's tools/ folder) ---
+    code_refs = [t for t in config.tools if t.type == ToolType.CODE]
+    if code_refs:
+        tools_dir = config.client_dir / "tools"
+
+        if not tools_dir.is_dir() and code_refs:
+            raise FileNotFoundError(
+                f"Tools directory not found: {tools_dir}\n"
+                f"Config references {len(code_refs)} code tool(s) but directory doesn't exist."
             )
 
-        all_tools.extend(extracted)
+        for tool_ref in code_refs:
+            if not tool_ref.module:
+                import warnings
+                warnings.warn(
+                    f"Code tool '{tool_ref.name}' has no module specified, skipping.",
+                    stacklevel=2,
+                )
+                continue
+
+            module = _import_module_from_path(tool_ref.module, tools_dir)
+            extracted = _extract_tools_from_module(module, tool_ref.functions)
+
+            if not extracted:
+                import warnings
+                warnings.warn(
+                    f"No tools found in module '{tool_ref.module}'. "
+                    f"Ensure functions are decorated with @function_tool.",
+                    stacklevel=2,
+                )
+
+            all_tools.extend(extracted)
 
     return all_tools
 

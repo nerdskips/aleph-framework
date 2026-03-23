@@ -1,1 +1,1 @@
-"""Zuper Agent Framework — core/api/"""
+"""Zuper Agent Framework — FastAPI webhooks."""

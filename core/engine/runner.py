@@ -26,8 +26,6 @@ import logging
 import time
 from typing import Any
 
-from dotenv import load_dotenv; load_dotenv()
-
 from agents import Agent, Runner, ModelSettings
 
 from core.registry.registry import AgentRegistry
@@ -238,7 +236,9 @@ def main():
         sys.exit(1)
 
     if args.interactive:
-        # Interactive chat mode
+        # Interactive chat mode with full pipeline (guardrails + agent)
+        from core.engine.pipeline import process_message
+
         print("\n💬 Interactive mode — type 'quit' to exit")
         print("-" * 40)
         history = []
@@ -257,17 +257,38 @@ def main():
             if not user_input:
                 continue
 
-            response = run_agent_sync(registry, user_input, history)
-            print(f"\n🤖 {registry.agent_name}: {response}")
+            result = asyncio.run(process_message(registry, user_input, history))
+
+            # Show guardrail info if matched
+            if result.input_classification and result.input_classification.matched:
+                cls = result.input_classification
+                print(f"  🛡️ Guardrail: {cls.pattern_name} → {cls.action.value}")
+
+            if result.output_check and result.output_check.blocked:
+                print(f"  🚫 Output blocked: {result.output_check.rule_name}")
+
+            if result.skipped_llm:
+                print(f"  ⚡ LLM skipped (guardrail handled)")
+
+            print(f"\n🤖 {registry.agent_name}: {result.response}")
+            print(f"  ⏱️ {result.elapsed_seconds:.1f}s")
 
             # Append to history for multi-turn
             history.append({"role": "user", "content": user_input})
-            history.append({"role": "assistant", "content": response})
+            history.append({"role": "assistant", "content": result.response})
 
     elif args.message:
-        # Single message mode
-        response = run_agent_sync(registry, args.message)
-        print(f"\n🤖 {registry.agent_name}: {response}")
+        # Single message mode with full pipeline
+        from core.engine.pipeline import process_message
+
+        result = asyncio.run(process_message(registry, args.message))
+
+        if result.input_classification and result.input_classification.matched:
+            cls = result.input_classification
+            print(f"  🛡️ Guardrail: {cls.pattern_name} → {cls.action.value}")
+
+        print(f"\n🤖 {registry.agent_name}: {result.response}")
+        print(f"  ⏱️ {result.elapsed_seconds:.1f}s")
 
     else:
         print("Provide --message or --interactive", file=sys.stderr)

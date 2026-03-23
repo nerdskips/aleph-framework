@@ -407,15 +407,56 @@ class APIConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Tools — domain tool registration
+# Tools — domain tool registration (webhook + code)
 # ---------------------------------------------------------------------------
 
+class ToolType(str, Enum):
+    """Tool implementation type."""
+    WEBHOOK = "webhook"  # N8N / external HTTP — zero code, YAML only
+    CODE = "code"        # Python module in client's tools/ folder
+
+
+class WebhookParam(BaseModel):
+    """A single parameter for a webhook tool."""
+    type: str = Field("string", description="Parameter type: 'string', 'number', 'boolean', 'integer'")
+    description: str = Field("", description="Description shown to the LLM")
+    required: bool = Field(True, description="Whether the LLM must provide this")
+    default: Any = Field(None, description="Default value (if set, injected automatically)")
+    hidden: bool = Field(False, description="If true, parameter is hidden from LLM and injected with default value")
+    enum: list[str] = Field(default_factory=list, description="Allowed values (optional)")
+
+
 class ToolRef(BaseModel):
-    """Reference to a domain tool in the client's tools/ folder."""
-    module: str = Field(..., description="Python module name (e.g. 'echo_tools')")
+    """Tool definition — supports both webhook (N8N) and code (Python) tools.
+
+    Webhook mode (type='webhook'):
+      Declares a tool entirely in YAML. The framework generates a @function_tool
+      that POSTs to the webhook URL and returns the JSON response.
+      The junior never writes Python.
+
+    Code mode (type='code'):
+      References a Python module in the client's tools/ folder.
+      Functions decorated with @function_tool are auto-discovered.
+    """
+    name: str = Field(..., description="Tool name (what the LLM sees)")
+    type: ToolType = Field(ToolType.CODE, description="'webhook' for N8N/HTTP, 'code' for Python")
+    description: str = Field("", description="Tool description (what the LLM sees)")
+
+    # --- Webhook mode fields ---
+    webhook_url: str = Field("", description="Full URL for webhook (e.g. 'http://n8n:5678/webhook/sheets')")
+    method: str = Field("POST", description="HTTP method: POST or GET")
+    parameters: dict[str, WebhookParam] = Field(
+        default_factory=dict,
+        description="Parameters: key = param name, value = WebhookParam config"
+    )
+    returns: str = Field("", description="Description of what the tool returns (for LLM context)")
+    timeout_seconds: int = Field(30, ge=1, description="HTTP timeout for webhook call")
+
+    # --- Code mode fields ---
+    module: str = Field("", description="Python module name (e.g. 'echo_tools') — code mode only")
     functions: list[str] = Field(
         default_factory=list,
-        description="Function names to import. Empty = import all @function_tool decorated."
+        description="Function names to import. Empty = auto-discover @function_tool — code mode only"
     )
 
 
