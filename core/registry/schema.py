@@ -281,17 +281,35 @@ class HumanConfig(BaseModel):
 # DEFAULT OFF — not every agent needs to learn
 # ---------------------------------------------------------------------------
 
+"""
+SCHEMA DIFF — Campos novos para HabitsConfig em core/registry/schema.py
+=========================================================================
+Substitua a classe HabitsConfig existente por esta versão.
+Campos adicionados: auto_migrate, schema
+"""
+
+
 class HabitsConfig(BaseModel):
     """Operational habits (hybrid search RRF + dedup).
-    DEFAULT OFF — enable when agent should learn from human resolutions."""
+    DEFAULT OFF — enable when agent should learn from human resolutions.
+
+    Database: any Postgres with pgvector extension.
+      - Self-hosted: just set DATABASE_URL
+      - Supabase: set DATABASE_URL (pooler) + DATABASE_MIGRATION_URL (direct)
+
+    Auto-migrate: when enabled, creates extensions, table, indexes,
+    and the hybrid search function on first startup.
+    """
     enabled: bool = Field(False)
+    auto_migrate: bool = Field(True, description="Create table/functions on startup if not exist")
     embedding_model: str = Field("openai/text-embedding-3-small", description="Embedding model via Bifrost")
     embedding_dimensions: int = Field(1536)
-    dedup_threshold: float = Field(0.020, ge=0.0, le=1.0, description="RRF dedup threshold (production-validated)")
+    dedup_threshold: float = Field(0.020, ge=0.0, le=1.0, description="Cosine distance dedup threshold (production-validated)")
     rrf_k: int = Field(60, ge=1, description="RRF ranking constant")
     match_count: int = Field(3, ge=1, description="Max results from hybrid search")
     search_before_escalate: bool = Field(True, description="Check habits before escalating to human")
-    table_name: str = Field("operational_habits")
+    table_name: str = Field("operational_habits", description="Postgres table name")
+    schema: str = Field("public", description="Postgres schema (useful for Supabase)")
 
 
 # ---------------------------------------------------------------------------
