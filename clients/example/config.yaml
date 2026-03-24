@@ -77,9 +77,18 @@ messaging:
 # Two modes: 'code' (Python) and 'webhook' (N8N/HTTP, zero code)
 tools:
   # Code tool — Python module in tools/ folder
-  - name: "echo_message"
-    type: "code"
-    module: "echo_tools"
+ #  - name: "echo_message"
+ #    type: "code"
+ #    module: "echo_tools"
+  - name: "buscar_cep"
+    type: "webhook"
+    description: "Busca endereço por CEP"
+    webhook_url: "https://viacep.com.br/ws/{cep}/json/"
+    method: "GET"
+    parameters:
+      cep:
+        type: "string"
+        description: "CEP para buscar (só números)"
 
   # Webhook tool example (uncomment to test with N8N):
   # - name: "consultar_dados"

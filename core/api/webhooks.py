@@ -6,7 +6,7 @@ The entry point. Receives Z-API webhooks and drives the full pipeline:
 
 Endpoints:
   POST /webhook/zapi   — Main message handler
-  POST /webhook/humano — Human-in-the-loop reply (future)
+  POST /webhook/humano — Human-in-the-loop reply (escalation response)
   GET  /health         — Health check
 
 Usage:
@@ -34,6 +34,7 @@ from core.messaging.zapi_filter import (
     extract_message,
     should_filter,
     is_human_takeover_message,
+    is_human_reply,
 )
 from core.messaging.zapi_send import ZAPISender
 from core.engine.pipeline import process_message
@@ -119,10 +120,11 @@ async def webhook_zapi(request: Request):
     Flow:
       1. Parse payload
       2. Filter (groups, newsletters, reactions, etc)
-      3. Handle takeover (human typing on agent's WhatsApp)
-      4. Anti-spam (messageId dedup)
-      5. Buffer (chunked messages consolidation)
-      6. After buffer timeout: consume → lock → run agent → send
+      3. Check for human reply (escalation response via quote)
+      4. Handle takeover (human typing on agent's WhatsApp)
+      5. Anti-spam (messageId dedup)
+      6. Buffer (chunked messages consolidation)
+      7. After buffer timeout: consume → lock → run agent → send
     """
     try:
         payload = await request.json()
@@ -143,6 +145,22 @@ async def webhook_zapi(request: Request):
     if filter_reason:
         logger.debug("Filtered [%s]: %s", filter_reason, phone)
         return JSONResponse({"status": "filtered", "reason": filter_reason})
+
+    # --- Human reply detection (escalation response) ---
+    # Check BEFORE takeover — a quote from responsible is an escalation reply,
+    # not a takeover. This handles the case where the responsible is also
+    # listed as someone who types on the agent's WhatsApp.
+    if is_human_reply(message, _registry.config.human.responsible_phones):
+        reference_id = message.get("reference_message_id", "")
+        if reference_id:
+            logger.info(
+                "Human reply detected from %s (ref: %s)", phone, reference_id,
+            )
+            # Handle async to not block webhook response
+            asyncio.create_task(
+                _handle_escalation_reply(phone, text, reference_id)
+            )
+            return JSONResponse({"status": "escalation_reply_received"})
 
     # --- Takeover detection ---
     if is_human_takeover_message(message):
@@ -211,11 +229,20 @@ async def _process_after_buffer(phone: str):
 
         try:
             # Run full pipeline (guardrails + agent + output check)
-            result = await process_message(_registry, consolidated)
+            # Pass phone, redis, and sender for escalation support
+            result = await process_message(
+                registry=_registry,
+                user_message=consolidated,
+                phone=phone,
+                redis_session=_redis,
+                sender=_sender,
+            )
 
             logger.info(
-                "Pipeline responded to %s: %d chars in %.1fs (skipped_llm=%s)",
-                phone, len(result.response), result.elapsed_seconds, result.skipped_llm,
+                "Pipeline responded to %s: %d chars in %.1fs "
+                "(skipped_llm=%s, escalated=%s)",
+                phone, len(result.response), result.elapsed_seconds,
+                result.skipped_llm, result.escalated,
             )
 
             # Send response
@@ -232,13 +259,103 @@ async def _process_after_buffer(phone: str):
 
 
 # ---------------------------------------------------------------------------
-# Human webhook (placeholder for future)
+# Escalation reply handler
+# ---------------------------------------------------------------------------
+
+async def _handle_escalation_reply(
+    responsible_phone: str,
+    human_instruction: str,
+    reference_message_id: str,
+):
+    """Handle a human's reply to an escalation notification.
+
+    Called when a responsible person responds with a quote to the
+    escalation notification message.
+    """
+    try:
+        from core.human.escalation import handle_human_response
+
+        success = await handle_human_response(
+            redis_session=_redis,
+            sender=_sender,
+            registry=_registry,
+            responsible_phone=responsible_phone,
+            human_instruction=human_instruction,
+            reference_message_id=reference_message_id,
+        )
+
+        if success:
+            logger.info(
+                "Escalation resolved by %s (ref: %s)",
+                responsible_phone, reference_message_id,
+            )
+        else:
+            logger.warning(
+                "Escalation reply from %s could not be resolved (ref: %s)",
+                responsible_phone, reference_message_id,
+            )
+
+    except Exception as e:
+        logger.error(
+            "Error handling escalation reply from %s: %s",
+            responsible_phone, str(e), exc_info=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Human webhook (legacy endpoint — kept for compatibility)
 # ---------------------------------------------------------------------------
 
 @app.post("/webhook/humano")
 async def webhook_humano(request: Request):
-    """Human-in-the-loop reply webhook (future implementation)."""
-    return JSONResponse({"status": "not_implemented_yet"})
+    """Human-in-the-loop reply webhook.
+
+    NOTE: In the current architecture, escalation replies come through
+    the main /webhook/zapi endpoint (same Z-API instance) and are
+    detected by is_human_reply(). This endpoint is kept for:
+      - Future use with separate notification channels (N8N, panels)
+      - Direct API integration (external systems calling back)
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+
+    # Accept direct API calls with structured payload
+    client_phone = payload.get("client_phone", "")
+    human_instruction = payload.get("instruction", "")
+    reference_id = payload.get("reference_message_id", "")
+    responsible_phone = payload.get("responsible_phone", "")
+
+    if not all([client_phone, human_instruction]):
+        return JSONResponse(
+            {"error": "missing client_phone or instruction"},
+            status_code=400,
+        )
+
+    if reference_id:
+        # Standard flow: resolve via notification mapping
+        await _handle_escalation_reply(
+            responsible_phone, human_instruction, reference_id,
+        )
+    else:
+        # Direct resolution: client_phone provided explicitly
+        from core.human.escalation import handle_human_response
+        # For direct calls, we need to find the escalation by phone
+        esc_data = await _redis.get_escalation(client_phone)
+        if esc_data:
+            await _handle_escalation_reply(
+                responsible_phone or "api",
+                human_instruction,
+                esc_data.notification_message_id,
+            )
+        else:
+            return JSONResponse(
+                {"error": "no active escalation for this phone"},
+                status_code=404,
+            )
+
+    return JSONResponse({"status": "processed"})
 
 
 # ---------------------------------------------------------------------------

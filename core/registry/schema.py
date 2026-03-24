@@ -416,6 +416,14 @@ class ToolType(str, Enum):
     CODE = "code"        # Python module in client's tools/ folder
 
 
+class ParamsIn(str, Enum):
+    """Where webhook parameters are sent."""
+    BODY = "body"    # JSON body (default for POST — N8N pattern)
+    QUERY = "query"  # URL query string (default for GET)
+    URL = "url"      # Resolve {param} placeholders in URL (REST API pattern)
+    AUTO = "auto"    # Auto-detect: if URL has {param} → url, else POST=body / GET=query
+
+
 class WebhookParam(BaseModel):
     """A single parameter for a webhook tool."""
     type: str = Field("string", description="Parameter type: 'string', 'number', 'boolean', 'integer'")
@@ -434,6 +442,17 @@ class ToolRef(BaseModel):
       that POSTs to the webhook URL and returns the JSON response.
       The junior never writes Python.
 
+      Three URL patterns supported:
+        1. POST body (N8N):     webhook_url: "http://n8n:5678/webhook/xxx"
+                                params_in: "body"  (default for POST)
+        2. GET query:           webhook_url: "http://api.com/search"
+                                params_in: "query"  (default for GET)
+        3. URL template (REST): webhook_url: "https://viacep.com.br/ws/{cep}/json/"
+                                params_in: "url"
+        4. Auto-detect:         params_in: "auto" (default)
+                                → if URL has {param} placeholders → resolves them
+                                → remaining params → body (POST) or query (GET)
+
     Code mode (type='code'):
       References a Python module in the client's tools/ folder.
       Functions decorated with @function_tool are auto-discovered.
@@ -443,8 +462,12 @@ class ToolRef(BaseModel):
     description: str = Field("", description="Tool description (what the LLM sees)")
 
     # --- Webhook mode fields ---
-    webhook_url: str = Field("", description="Full URL for webhook (e.g. 'http://n8n:5678/webhook/sheets')")
+    webhook_url: str = Field("", description="Full URL (supports {param} placeholders)")
     method: str = Field("POST", description="HTTP method: POST or GET")
+    params_in: ParamsIn = Field(
+        ParamsIn.AUTO,
+        description="Where to send params: 'body' (POST JSON), 'query' (?key=val), 'url' ({param} in URL), 'auto' (detect)"
+    )
     parameters: dict[str, WebhookParam] = Field(
         default_factory=dict,
         description="Parameters: key = param name, value = WebhookParam config"

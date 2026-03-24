@@ -2,14 +2,14 @@
 
 import yaml
 import sys
-sys.path.insert(0, "/home/claude/zuper-framework")
+sys.path.insert(0, "/root/zuper-framework")
 
 from core.registry.schema import FrameworkConfig, LogLevel
 
 
 def test_example_config():
     """Load the example config.yaml and validate all defaults."""
-    with open("/home/claude/zuper-framework/clients/example/config.yaml") as f:
+    with open("/root/zuper-framework/clients/example/config.yaml") as f:
         raw = yaml.safe_load(f)
 
     config = FrameworkConfig(**raw)

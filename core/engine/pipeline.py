@@ -6,6 +6,7 @@ The complete message processing flow:
   input text
     → input guardrail (deterministic, pre-LLM)
     → if redirect/block: return immediately (zero LLM cost)
+    → if escalate: pause agent, notify human, return hold message
     → run agent (LLM via Bifrost, with fallback)
     → output guardrail (post-LLM validation)
     → if blocked: return safe response
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
 from core.registry.registry import AgentRegistry
 from core.registry.schema import GuardrailAction
@@ -41,12 +43,14 @@ class PipelineResult:
         input_classification: ClassificationResult | None = None,
         output_check: OutputGuardrailResult | None = None,
         skipped_llm: bool = False,
+        escalated: bool = False,
         elapsed_seconds: float = 0.0,
     ):
         self.response = response
         self.input_classification = input_classification
         self.output_check = output_check
         self.skipped_llm = skipped_llm
+        self.escalated = escalated
         self.elapsed_seconds = elapsed_seconds
 
 
@@ -58,6 +62,9 @@ async def process_message(
     registry: AgentRegistry,
     user_message: str,
     message_history: list[dict] | None = None,
+    phone: str = "",
+    redis_session=None,
+    sender=None,
 ) -> PipelineResult:
     """Process a message through the full pipeline.
 
@@ -65,6 +72,9 @@ async def process_message(
         registry: Loaded AgentRegistry
         user_message: The user's text input
         message_history: Optional conversation history
+        phone: Client phone number (needed for escalation)
+        redis_session: RedisSession instance (needed for escalation)
+        sender: ZAPISender instance (needed for escalation)
 
     Returns:
         PipelineResult with response and metadata
@@ -124,30 +134,76 @@ async def process_message(
                 len(classification.inject_instruction),
             )
 
-        # ESCALATE / ESCALATE_NO_HABIT / TAKEOVER / TOOL_REQUIRED
-        # These modify behavior but still go to LLM (with tool_choice forced, etc)
-        # The actual escalation logic lives in human/ module (future)
-        if action in (
-            GuardrailAction.ESCALATE,
-            GuardrailAction.ESCALATE_NO_HABIT,
-            GuardrailAction.TAKEOVER,
-            GuardrailAction.TOOL_REQUIRED,
-        ):
-            logger.info(
-                "Pipeline: %s by '%s' (tool_choice=%s)",
-                action.value, classification.pattern_name, classification.tool_choice,
+        # -----------------------------------------------------------
+        # ESCALATE / ESCALATE_NO_HABIT — pause and notify human
+        # -----------------------------------------------------------
+        if action in (GuardrailAction.ESCALATE, GuardrailAction.ESCALATE_NO_HABIT):
+            result = await _handle_escalation(
+                config=config,
+                phone=phone,
+                user_message=user_message,
+                redis_session=redis_session,
+                sender=sender,
+                classification=classification,
+                start=start,
             )
-            # TODO: when human/ module is wired, handle escalation here
-            # For now, pass through to LLM with the classification info
+            if result:
+                return result
+            # If escalation failed (no redis, no sender, etc),
+            # fall through to LLM as safety net
+
+        # TAKEOVER — direct human takeover (different from escalation)
+        if action == GuardrailAction.TAKEOVER:
+            if redis_session and phone:
+                await redis_session.activate_takeover(phone)
+                logger.info("Pipeline: TAKEOVER activated for %s", phone)
+                # Still escalate to notify the responsible
+                result = await _handle_escalation(
+                    config=config,
+                    phone=phone,
+                    user_message=user_message,
+                    redis_session=redis_session,
+                    sender=sender,
+                    classification=classification,
+                    start=start,
+                )
+                if result:
+                    return result
+
+        # TOOL_REQUIRED — force tool_choice but continue to LLM
+        if action == GuardrailAction.TOOL_REQUIRED:
+            logger.info(
+                "Pipeline: TOOL_REQUIRED by '%s' (tool_choice=%s)",
+                classification.pattern_name, classification.tool_choice,
+            )
+
+    # ---------------------------------------------------------------
+    # 1.5 Check if there's an active escalation for this phone
+    # ---------------------------------------------------------------
+    if redis_session and phone:
+        if await redis_session.is_escalation_active(phone):
+            logger.info(
+                "Pipeline: escalation active for %s, holding message", phone,
+            )
+            return PipelineResult(
+                response="Sua dúvida já está sendo verificada pela equipe. "
+                         "Em breve retornaremos com a resposta!",
+                skipped_llm=True,
+                escalated=True,
+                elapsed_seconds=time.monotonic() - start,
+            )
 
     # ---------------------------------------------------------------
     # 2. Run agent (LLM with automatic fallback)
     # ---------------------------------------------------------------
-    response = await run_agent(
+    agent_result = await run_agent(
         registry,
         user_message,
         message_history,
     )
+
+    response = agent_result.response
+    tool_calls = agent_result.tool_calls
 
     # ---------------------------------------------------------------
     # 3. Output guardrail (post-LLM validation)
@@ -158,7 +214,7 @@ async def process_message(
         response=response,
         config=config.guardrails,
         intent=intent,
-        tool_calls=None,  # TODO: extract from SDK result when wired
+        tool_calls=tool_calls,
     )
 
     if output_result.blocked:
@@ -169,7 +225,7 @@ async def process_message(
         response = output_result.safe_response
 
     elapsed = time.monotonic() - start
-    logger.info("Pipeline complete: %.1fs, blocked=%s", elapsed, output_result.blocked)
+    logger.info("Pipeline complete: %.1fs, blocked=%s, tools=%s", elapsed, output_result.blocked, tool_calls or "(none)")
 
     return PipelineResult(
         response=response,
@@ -178,3 +234,66 @@ async def process_message(
         skipped_llm=False,
         elapsed_seconds=elapsed,
     )
+
+
+# ---------------------------------------------------------------------------
+# Escalation handler (internal)
+# ---------------------------------------------------------------------------
+
+async def _handle_escalation(
+    config,
+    phone: str,
+    user_message: str,
+    redis_session,
+    sender,
+    classification: ClassificationResult,
+    start: float,
+) -> PipelineResult | None:
+    """Handle escalation action. Returns PipelineResult if successful, None if failed."""
+    if not config.human.enabled:
+        logger.warning(
+            "Pipeline: %s by '%s' but human.enabled=false, falling through to LLM",
+            classification.action.value, classification.pattern_name,
+        )
+        return None
+
+    if not redis_session or not sender or not phone:
+        logger.error(
+            "Pipeline: %s by '%s' but missing redis_session/sender/phone, "
+            "falling through to LLM",
+            classification.action.value, classification.pattern_name,
+        )
+        return None
+
+    from core.human.escalation import escalate_to_human
+
+    # Get client context from Redis (if available)
+    context = await redis_session.get_context(phone)
+
+    hold_message = await escalate_to_human(
+        redis_session=redis_session,
+        sender=sender,
+        config=config,
+        client_phone=phone,
+        original_message=user_message,
+        context=context,
+    )
+
+    if hold_message:
+        logger.info(
+            "Pipeline: %s by '%s' → escalated to human",
+            classification.action.value, classification.pattern_name,
+        )
+        return PipelineResult(
+            response=hold_message,
+            input_classification=classification,
+            skipped_llm=True,
+            escalated=True,
+            elapsed_seconds=time.monotonic() - start,
+        )
+
+    # escalate_to_human returned empty = something failed
+    logger.warning(
+        "Pipeline: escalation failed, falling through to LLM",
+    )
+    return None

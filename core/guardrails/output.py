@@ -152,8 +152,12 @@ def check_output(
     result = OutputGuardrailResult(original_response=response)
     default_safe = "Desculpe, não tenho essa informação. Posso verificar com a equipe?"
 
+    # If tools were called this turn, the data came from tools — not fabricated.
+    # Skip fabrication and price leak guards (they're meant to catch LLM hallucination).
+    tools_were_called = bool(tool_calls)
+
     # --- Built-in: fabrication ---
-    if config.enable_fabrication_guard and _check_fabrication(response):
+    if config.enable_fabrication_guard and not tools_were_called and _check_fabrication(response):
         result.blocked = True
         result.rule_name = "fabrication_builtin"
         result.rule_type = "fabrication"
@@ -162,7 +166,7 @@ def check_output(
         return result
 
     # --- Built-in: price leak ---
-    if config.enable_price_leak_guard and _check_price_leak(response, intent):
+    if config.enable_price_leak_guard and not tools_were_called and _check_price_leak(response, intent):
         result.blocked = True
         result.rule_name = "price_leak_builtin"
         result.rule_type = "price_leak"

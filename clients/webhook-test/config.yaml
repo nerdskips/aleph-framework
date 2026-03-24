@@ -1,0 +1,21 @@
+client_id: "webhook-test"
+
+agent:
+  name: "Webhook Tester"
+  model: "openai/gpt-4.1-mini"
+  system_prompt_file: "prompts/system.md"
+
+human:
+  enabled: false
+
+tools:
+  - name: "buscar_cep"
+    type: "webhook"
+    description: "Busca endereço por CEP"
+    webhook_url: "https://n8n.srv1137199.hstgr.cloud/webhook/e7d79e99-1f4b-4ee4-a667-b900cb97f48e?cep={cep}"
+    method: "POST"
+    send_as: "query"
+    parameters:
+      cep:
+        type: "string"
+        description: "CEP para buscar (só números)"

@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import dataclass, field
 from typing import Any
 
 from agents import Agent, Runner, ModelSettings
@@ -77,6 +78,38 @@ def build_agent(
 
 
 # ---------------------------------------------------------------------------
+# Agent result
+# ---------------------------------------------------------------------------
+
+@dataclass
+class AgentResult:
+    """Result from running the agent."""
+    response: str
+    tool_calls: list[str] = field(default_factory=list)  # names of tools called
+
+
+def _extract_tool_calls(result: Any) -> list[str]:
+    """Extract tool call names from SDK RunResult."""
+    tool_names = []
+    try:
+        for item in result.new_items:
+            # SDK 0.12: ToolCallItem has a name attribute
+            item_type = type(item).__name__
+            if "ToolCall" in item_type or "tool_call" in item_type.lower():
+                name = getattr(item, "name", None) or getattr(item, "tool_name", "")
+                if name:
+                    tool_names.append(name)
+            # Also check raw_item for tool calls
+            raw = getattr(item, "raw_item", None)
+            if raw and hasattr(raw, "name"):
+                if raw.name and raw.name not in tool_names:
+                    tool_names.append(raw.name)
+    except Exception:
+        pass  # Don't crash on introspection failure
+    return tool_names
+
+
+# ---------------------------------------------------------------------------
 # Execution with fallback
 # ---------------------------------------------------------------------------
 
@@ -84,7 +117,7 @@ async def run_agent(
     registry: AgentRegistry,
     user_message: str,
     message_history: list[dict] | None = None,
-) -> str:
+) -> AgentResult:
     """Run the agent with automatic fallback.
 
     Flow:
@@ -98,7 +131,7 @@ async def run_agent(
         message_history: Optional conversation history for context
 
     Returns:
-        Agent's text response
+        AgentResult with response text and list of tool calls made
     """
     config = registry.config
     model_settings = create_model_settings(config)
@@ -127,14 +160,16 @@ async def run_agent(
 
         elapsed = time.monotonic() - start
         response = result.final_output
+        tool_calls = _extract_tool_calls(result)
 
         logger.info(
-            "Primary model responded: %d chars in %.1fs",
+            "Primary model responded: %d chars in %.1fs, tools=%s",
             len(response) if response else 0,
             elapsed,
+            tool_calls or "(none)",
         )
 
-        return response
+        return AgentResult(response=response, tool_calls=tool_calls)
 
     except Exception as e:
         logger.warning(
@@ -161,14 +196,16 @@ async def run_agent(
 
         elapsed = time.monotonic() - start
         response = result.final_output
+        tool_calls = _extract_tool_calls(result)
 
         logger.info(
-            "Fallback model responded: %d chars in %.1fs",
+            "Fallback model responded: %d chars in %.1fs, tools=%s",
             len(response) if response else 0,
             elapsed,
+            tool_calls or "(none)",
         )
 
-        return response
+        return AgentResult(response=response, tool_calls=tool_calls)
 
     except Exception as e:
         logger.error(
@@ -177,9 +214,12 @@ async def run_agent(
             config.agent.fallback_model,
             str(e)[:300],
         )
-        return (
-            "Desculpe, estou com dificuldades técnicas no momento. "
-            "Por favor, tente novamente em alguns instantes."
+        return AgentResult(
+            response=(
+                "Desculpe, estou com dificuldades técnicas no momento. "
+                "Por favor, tente novamente em alguns instantes."
+            ),
+            tool_calls=[],
         )
 
 
@@ -187,7 +227,7 @@ def run_agent_sync(
     registry: AgentRegistry,
     user_message: str,
     message_history: list[dict] | None = None,
-) -> str:
+) -> AgentResult:
     """Synchronous wrapper for run_agent (convenience for scripts/CLI)."""
     return asyncio.run(run_agent(registry, user_message, message_history))
 

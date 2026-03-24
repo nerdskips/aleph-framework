@@ -23,6 +23,7 @@ import time
 from typing import Any
 
 import redis.asyncio as aioredis
+from core.session.redis_escalation import EscalationData
 
 from core.registry.schema import FrameworkConfig
 
@@ -228,4 +229,59 @@ class RedisSession:
     async def resolve_lid(self, lid: str) -> str | None:
         """Resolve LID to phone number."""
         key = self._key("lid", lid)
+        return await self.client.get(key)
+    
+    # -------------------------------------------------------------------
+    # Escalation — pause + resume flow
+    # -------------------------------------------------------------------
+
+    async def save_escalation(self, data: EscalationData) -> None:
+        """Save escalation session for a client phone."""
+        key = self._key("esc", data.client_phone)
+        ttl = self.config.human.escalation_session_ttl
+        await self.client.set(key, data.to_json(), ex=ttl)
+        logger.info(
+            "Escalation saved for %s → responsible %s (TTL: %ds)",
+            data.client_phone, data.responsible_phone, ttl,
+        )
+
+    async def get_escalation(self, client_phone: str) -> EscalationData | None:
+        """Load escalation session for a client phone."""
+        key = self._key("esc", client_phone)
+        raw = await self.client.get(key)
+        if not raw:
+            return None
+        try:
+            return EscalationData.from_json(raw)
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.error("Failed to parse escalation for %s: %s", client_phone, e)
+            return None
+
+    async def clear_escalation(self, client_phone: str) -> None:
+        """Clear escalation session after human resolves it."""
+        key = self._key("esc", client_phone)
+        await self.client.delete(key)
+        logger.info("Escalation cleared for %s", client_phone)
+
+    async def is_escalation_active(self, client_phone: str) -> bool:
+        """Check if there's an active escalation for this phone."""
+        key = self._key("esc", client_phone)
+        return bool(await self.client.exists(key))
+
+    async def map_notification_to_client(
+        self, notification_message_id: str, client_phone: str
+    ) -> None:
+        """Map notification messageId to client phone for quote lookup."""
+        key = self._key("esc_msg", notification_message_id)
+        ttl = self.config.human.escalation_session_ttl
+        await self.client.set(key, client_phone, ex=ttl)
+        logger.debug(
+            "Notification mapped: %s → %s", notification_message_id, client_phone,
+        )
+
+    async def resolve_notification_to_client(
+        self, notification_message_id: str
+    ) -> str | None:
+        """Resolve notification messageId to client phone."""
+        key = self._key("esc_msg", notification_message_id)
         return await self.client.get(key)
