@@ -6,32 +6,10 @@ Handles the complete escalation lifecycle:
   1. ESCALATE  — Agent pauses, saves context, notifies responsible human
   2. RESOLVE   — Human responds via quote, framework captures the response
   3. RESUME    — LLM reformulates human's instruction in agent's tone, sends to client
+  4. LEARN     — If habits enabled, classify and store the resolution as a habit
 
 This is a CORE module — generic, never client-specific.
-Behavior is controlled entirely by config.yaml:
-  - human.enabled
-  - human.responsible_phones
-  - human.escalation_session_ttl
-  - human.notify_via
-
-Flow:
-  Pipeline detects ESCALATE action (guardrail or tool)
-    → escalate_to_human()
-      → saves session to Redis (esc:{phone})
-      → picks responsible from config
-      → sends notification via Z-API
-      → maps notification messageId → client phone
-      → returns hold message to client
-
-  Human responds with quote on notification
-    → handle_human_response() (called from /webhook/humano)
-      → extracts referenceMessageId from quote
-      → resolves to client phone via Redis mapping
-      → loads escalation context
-      → passes human instruction + context to LLM
-      → LLM reformulates in agent's tone
-      → sends to client via Z-API
-      → clears escalation
+Behavior is controlled entirely by config.yaml.
 """
 
 from __future__ import annotations
@@ -63,30 +41,18 @@ def build_notification_message(
     original_message: str,
     context: dict[str, Any] | None = None,
 ) -> str:
-    """Build the notification message sent to the responsible human.
-
-    The message includes enough context for the human to respond
-    without needing to look anything up.
-
-    Args:
-        agent_name: Name of the agent (from config)
-        client_phone: Client's phone number
-        original_message: The message that triggered escalation
-        context: Optional client context (name, preferences, etc)
-    """
+    """Build the notification message sent to the responsible human."""
     parts = [
         f"🔔 *Escalonamento — {agent_name}*",
         "",
         f"📱 Cliente: {client_phone}",
     ]
 
-    # Add context if available
     if context:
         name = context.get("name")
         if name:
             parts.append(f"👤 Nome: {name}")
 
-        # Add other relevant context (neighborhood, preferences, etc)
         for key, value in context.items():
             if key != "name" and value:
                 parts.append(f"ℹ️ {key}: {value}")
@@ -117,26 +83,12 @@ async def escalate_to_human(
 ) -> str:
     """Escalate a conversation to a human responsible.
 
-    This is called by the pipeline when a guardrail triggers ESCALATE.
-
     Steps:
       1. Pick responsible phone from config
       2. Send notification to responsible via Z-API
       3. Save escalation session to Redis
       4. Map notification messageId → client phone
       5. Return hold message (pipeline sends this to client)
-
-    Args:
-        redis_session: RedisSession instance
-        sender: ZAPISender instance
-        config: FrameworkConfig
-        client_phone: The client's phone number
-        original_message: The message that triggered escalation
-        context: Optional client context from Redis
-        hold_message: Custom hold message (falls back to default)
-
-    Returns:
-        Hold message string to send to the client
     """
     human_config = config.human
 
@@ -148,10 +100,8 @@ async def escalate_to_human(
         logger.error("Escalation requested but no responsible_phones configured")
         return ""
 
-    # Pick first responsible (future: round-robin, availability check)
     responsible_phone = human_config.responsible_phones[0]
 
-    # Build notification
     notification_text = build_notification_message(
         agent_name=config.agent.name,
         client_phone=client_phone,
@@ -159,7 +109,6 @@ async def escalate_to_human(
         context=context,
     )
 
-    # Send notification to responsible
     notification_msg_id = await sender.send_notification(
         responsible_phone, notification_text,
     )
@@ -175,7 +124,6 @@ async def escalate_to_human(
         client_phone, responsible_phone, notification_msg_id,
     )
 
-    # Save escalation session
     esc_data = EscalationData(
         client_phone=client_phone,
         original_message=original_message,
@@ -186,7 +134,6 @@ async def escalate_to_human(
     )
     await redis_session.save_escalation(esc_data)
 
-    # Map notification messageId → client phone (for quote lookup)
     await redis_session.map_notification_to_client(
         notification_msg_id, client_phone,
     )
@@ -195,7 +142,7 @@ async def escalate_to_human(
 
 
 # ---------------------------------------------------------------------------
-# Resume — Phase 3
+# Resume — Phase 3 + Learn — Phase 4
 # ---------------------------------------------------------------------------
 
 async def handle_human_response(
@@ -205,10 +152,9 @@ async def handle_human_response(
     responsible_phone: str,
     human_instruction: str,
     reference_message_id: str,
+    habits_db=None,
 ) -> bool:
     """Handle a human's response to an escalation.
-
-    Called from /webhook/humano when a responsible replies with a quote.
 
     Steps:
       1. Resolve referenceMessageId → client phone
@@ -216,17 +162,7 @@ async def handle_human_response(
       3. Pass human instruction to LLM for reformulation
       4. Send reformulated response to client
       5. Clear escalation
-
-    Args:
-        redis_session: RedisSession instance
-        sender: ZAPISender instance
-        registry: AgentRegistry (for running LLM)
-        responsible_phone: Phone of the human who responded
-        human_instruction: The human's response text
-        reference_message_id: messageId being quoted (our notification)
-
-    Returns:
-        True if handled successfully, False if escalation not found
+      6. If habits enabled: classify and store as habit
     """
     # Step 1: Resolve notification → client phone
     client_phone = await redis_session.resolve_notification_to_client(
@@ -247,7 +183,6 @@ async def handle_human_response(
         logger.warning(
             "Escalation session expired or not found for %s", client_phone,
         )
-        # Notify responsible that the session expired
         await sender.send_notification(
             responsible_phone,
             f"⚠️ A sessão de escalonamento para {client_phone} expirou. "
@@ -285,7 +220,64 @@ async def handle_human_response(
         f"✅ Resposta enviada ao cliente {client_phone}.",
     )
 
+    # Step 6: Store habit (if enabled)
+    await _store_habit_if_enabled(
+        registry=registry,
+        habits_db=habits_db,
+        original_question=esc_data.original_message,
+        human_instruction=human_instruction,
+        context=esc_data.context,
+    )
+
     return True
+
+
+# ---------------------------------------------------------------------------
+# Habit store (internal)
+# ---------------------------------------------------------------------------
+
+async def _store_habit_if_enabled(
+    registry,
+    habits_db,
+    original_question: str,
+    human_instruction: str,
+    context: dict[str, Any] | None = None,
+) -> None:
+    """Store a habit after escalation resolution, if habits are enabled."""
+    config = registry.config
+
+    if not config.habits.enabled:
+        return
+
+    if not habits_db:
+        logger.warning("Habits enabled but no habits_db provided, skipping store")
+        return
+
+    try:
+        from core.habits.store import store_habit
+
+        result = await store_habit(
+            db=habits_db,
+            config=config.habits,
+            registry=registry,
+            client_id=config.client_id,
+            original_question=original_question,
+            human_instruction=human_instruction,
+            metadata=context,
+        )
+
+        if result:
+            logger.info(
+                "Habit stored after escalation: id=%s, type=%s",
+                result["id"],
+                "UNIQUE" if result["is_unique"] else "GENERAL",
+            )
+        else:
+            logger.debug("Habit not stored (dedup or classification failure)")
+
+    except Exception as e:
+        # Never let habit storage failure break the escalation flow
+        logger.error("Habit store failed (non-blocking): %s", str(e)[:200])
 
 
 # ---------------------------------------------------------------------------
@@ -298,27 +290,9 @@ async def _reformulate_response(
     original_message: str,
     context: dict[str, Any] | None = None,
 ) -> str:
-    """Use the LLM to reformulate the human's instruction in the agent's tone.
-
-    The human writes a raw instruction like:
-      "Diga que o prazo é 5 dias úteis e que pode acompanhar pelo app"
-
-    The LLM turns it into a natural response in the agent's voice:
-      "O prazo para resolução é de 5 dias úteis! Você pode acompanhar
-       o andamento pelo nosso app a qualquer momento 😊"
-
-    Args:
-        registry: AgentRegistry (has agent + runner)
-        human_instruction: Raw instruction from the human
-        original_message: What the client originally asked
-        context: Optional client context
-
-    Returns:
-        Reformulated response string
-    """
+    """Use the LLM to reformulate the human's instruction in the agent's tone."""
     from core.engine.runner import run_agent
 
-    # Build reformulation prompt
     context_str = ""
     if context:
         context_parts = [f"- {k}: {v}" for k, v in context.items() if v]
@@ -350,5 +324,4 @@ async def _reformulate_response(
         return result.response
     except Exception as e:
         logger.error("LLM reformulation failed: %s", str(e)[:200])
-        # Fallback: send the human instruction as-is
         return human_instruction

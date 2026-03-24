@@ -402,10 +402,22 @@ class QueueConfig(BaseModel):
 # ---------------------------------------------------------------------------
 
 class LLMConfig(BaseModel):
-    """LLM gateway via Bifrost.
-    ALWAYS ON — handles model routing and automatic fallback."""
-    gateway_url: str = Field("http://bifrost:8080/v1", description="Bifrost endpoint")
-    api_key: str = Field("dummy", description="API key (Bifrost uses dummy)")
+    """LLM connection configuration.
+    ALWAYS ON — every agent needs LLM access.
+
+    Two modes:
+      1. Bifrost (default) — local gateway that routes to multiple providers
+      2. Direct API key — connects straight to the provider
+    """
+    provider: str = Field(
+        "",
+        description=(
+            "LLM provider: 'bifrost' (default), 'openai', 'gemini', 'deepseek', "
+            "'openrouter', 'custom'. Empty = auto-detect from env vars."
+        ),
+    )
+    gateway_url: str = Field("http://bifrost:8080/v1", description="Bifrost endpoint (only used when provider=bifrost)")
+    api_key: str = Field("dummy", description="API key (Bifrost uses dummy, direct uses real key from .env)")
     timeout_seconds: int = Field(60, ge=10, description="Primary model timeout")
     fallback_timeout_seconds: int = Field(120, ge=10, description="Fallback model timeout (DeepSeek needs 120s)")
 

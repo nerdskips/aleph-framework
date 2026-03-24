@@ -1,0 +1,74 @@
+# =============================================================================
+# Zuper Agent Framework — Docker Compose
+# =============================================================================
+# Cada agente = um service com seu próprio .env em clients/<agent>/.env
+#
+# Uso:
+#   docker compose up -d                      # sobe todos
+#   docker compose up -d agent-padaria        # sobe só um
+#   docker compose logs -f agent-padaria      # logs
+#   docker compose restart agent-padaria      # restart
+#
+# Para adicionar um novo agente:
+#   1. Cria a pasta: clients/novo-agente/
+#   2. Cria o config: clients/novo-agente/config.yaml
+#   3. Cria o prompt: clients/novo-agente/prompts/system.md
+#   4. Cria o .env:   clients/novo-agente/.env
+#   5. Copia o bloco de service abaixo e ajusta nome + porta
+#   6. docker compose up -d agent-novo-agente
+# =============================================================================
+
+networks:
+  zuper_net:
+    external: true    # Rede compartilhada com Bifrost (já existe no server)
+
+services:
+
+  # -----------------------------------------------------------------------
+  # Agente exemplo — template para copiar
+  # -----------------------------------------------------------------------
+  agent-example:
+    build: .
+    container_name: zuper-agent-example
+    env_file: clients/example/.env
+    environment:
+      - CLIENT_ID=example
+    ports:
+      - "8000:8000"
+    networks:
+      - zuper_net
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # -----------------------------------------------------------------------
+  # Agente teste HITL
+  # -----------------------------------------------------------------------
+  agent-teste-hitl:
+    build: .
+    container_name: zuper-agent-teste-hitl
+    env_file: clients/teste-hitl/.env
+    environment:
+      - CLIENT_ID=teste-hitl
+    ports:
+      - "8001:8000"
+    networks:
+      - zuper_net
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # -----------------------------------------------------------------------
+  # Para adicionar mais agentes, copia um bloco acima e muda:
+  #   - service name:    agent-NOME
+  #   - container_name:  zuper-agent-NOME
+  #   - env_file:        clients/NOME/.env
+  #   - CLIENT_ID:       NOME
+  #   - ports:           próxima porta livre (8002:8000, 8003:8000, etc)
+  # -----------------------------------------------------------------------

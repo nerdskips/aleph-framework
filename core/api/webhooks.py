@@ -11,7 +11,6 @@ Endpoints:
 
 Usage:
   python -m core.api.webhooks --client example
-  # Starts FastAPI on configured port, ready to receive Z-API webhooks
 """
 
 from __future__ import annotations
@@ -48,6 +47,7 @@ logger = logging.getLogger("zuper.api")
 _registry: AgentRegistry | None = None
 _redis: RedisSession | None = None
 _sender: ZAPISender | None = None
+_habits_db = None  # HabitsDatabase | None — initialized only if habits.enabled
 _buffer_timers: dict[str, asyncio.Task] = {}
 
 
@@ -58,7 +58,7 @@ _buffer_timers: dict[str, asyncio.Task] = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Boot the framework on startup, cleanup on shutdown."""
-    global _registry, _redis, _sender
+    global _registry, _redis, _sender, _habits_db
 
     client_id = os.environ.get("CLIENT_ID")
     if not client_id:
@@ -75,16 +75,36 @@ async def lifespan(app: FastAPI):
     # Init Z-API sender
     _sender = ZAPISender(_registry.config)
 
+    # Init Habits database (only if enabled)
+    if _registry.config.habits.enabled:
+        try:
+            from core.habits.database import HabitsDatabase
+
+            _habits_db = HabitsDatabase(_registry.config.habits)
+            await _habits_db.connect()
+            await _habits_db.bootstrap()
+            logger.info("Habits database connected and bootstrapped")
+        except Exception as e:
+            logger.error(
+                "Habits database initialization failed: %s. "
+                "Habits will be disabled for this session.",
+                str(e)[:200],
+            )
+            _habits_db = None
+
     logger.info(
-        "🚀 %s online — port %d — model %s",
+        "🚀 %s online — port %d — model %s — habits %s",
         _registry.agent_name,
         _registry.config.api.port,
         _registry.config.agent.model,
+        "ON" if _habits_db else "OFF",
     )
 
     yield
 
     # Cleanup
+    if _habits_db:
+        await _habits_db.close()
     if _sender:
         await _sender.close()
     if _redis:
@@ -105,6 +125,7 @@ async def health():
         "status": "ok",
         "agent": _registry.agent_name if _registry else None,
         "client_id": _registry.client_id if _registry else None,
+        "habits": _habits_db is not None,
         "timestamp": time.time(),
     }
 
@@ -115,17 +136,7 @@ async def health():
 
 @app.post("/webhook/zapi")
 async def webhook_zapi(request: Request):
-    """Main Z-API webhook handler.
-
-    Flow:
-      1. Parse payload
-      2. Filter (groups, newsletters, reactions, etc)
-      3. Check for human reply (escalation response via quote)
-      4. Handle takeover (human typing on agent's WhatsApp)
-      5. Anti-spam (messageId dedup)
-      6. Buffer (chunked messages consolidation)
-      7. After buffer timeout: consume → lock → run agent → send
-    """
+    """Main Z-API webhook handler."""
     try:
         payload = await request.json()
     except Exception:
@@ -147,16 +158,12 @@ async def webhook_zapi(request: Request):
         return JSONResponse({"status": "filtered", "reason": filter_reason})
 
     # --- Human reply detection (escalation response) ---
-    # Check BEFORE takeover — a quote from responsible is an escalation reply,
-    # not a takeover. This handles the case where the responsible is also
-    # listed as someone who types on the agent's WhatsApp.
     if is_human_reply(message, _registry.config.human.responsible_phones):
         reference_id = message.get("reference_message_id", "")
         if reference_id:
             logger.info(
                 "Human reply detected from %s (ref: %s)", phone, reference_id,
             )
-            # Handle async to not block webhook response
             asyncio.create_task(
                 _handle_escalation_reply(phone, text, reference_id)
             )
@@ -176,7 +183,7 @@ async def webhook_zapi(request: Request):
                 await _redis.renew_takeover(phone)
         return JSONResponse({"status": "takeover_handled"})
 
-    # --- Check takeover active (consume buffer silently) ---
+    # --- Check takeover active ---
     if await _redis.is_takeover_active(phone):
         logger.debug("Takeover active, ignoring message from %s", phone)
         return JSONResponse({"status": "takeover_active"})
@@ -188,7 +195,6 @@ async def webhook_zapi(request: Request):
     # --- Buffer chunked messages ---
     await _redis.buffer_message(phone, text)
 
-    # Cancel previous timer for this phone, start new one
     if phone in _buffer_timers:
         _buffer_timers[phone].cancel()
 
@@ -206,53 +212,45 @@ async def webhook_zapi(request: Request):
 async def _process_after_buffer(phone: str):
     """Wait for buffer timeout, then process the consolidated message."""
     try:
-        # Wait for more chunks
         await asyncio.sleep(_registry.config.session.buffer_timeout)
 
-        # Remove timer reference
         _buffer_timers.pop(phone, None)
 
-        # Check takeover again (might have been activated during buffer wait)
         if await _redis.is_takeover_active(phone):
-            await _redis.consume_buffer(phone)  # consume and discard
+            await _redis.consume_buffer(phone)
             return
 
-        # Consume buffer
         consolidated = await _redis.consume_buffer(phone)
         if not consolidated:
             return
 
-        # Acquire processing lock
         if not await _redis.acquire_lock(phone):
             logger.warning("Lock busy for %s, skipping", phone)
             return
 
         try:
-            # Run full pipeline (guardrails + agent + output check)
-            # Pass phone, redis, and sender for escalation support
             result = await process_message(
                 registry=_registry,
                 user_message=consolidated,
                 phone=phone,
                 redis_session=_redis,
                 sender=_sender,
+                habits_db=_habits_db,
             )
 
             logger.info(
                 "Pipeline responded to %s: %d chars in %.1fs "
-                "(skipped_llm=%s, escalated=%s)",
+                "(skipped_llm=%s, escalated=%s, habit=%s)",
                 phone, len(result.response), result.elapsed_seconds,
-                result.skipped_llm, result.escalated,
+                result.skipped_llm, result.escalated, result.habit_used,
             )
 
-            # Send response
             await _sender.send_response(phone, result.response)
 
         finally:
             await _redis.release_lock(phone)
 
     except asyncio.CancelledError:
-        # Timer was cancelled because a new message arrived
         pass
     except Exception as e:
         logger.error("Error processing message for %s: %s", phone, str(e), exc_info=True)
@@ -267,11 +265,7 @@ async def _handle_escalation_reply(
     human_instruction: str,
     reference_message_id: str,
 ):
-    """Handle a human's reply to an escalation notification.
-
-    Called when a responsible person responds with a quote to the
-    escalation notification message.
-    """
+    """Handle a human's reply to an escalation notification."""
     try:
         from core.human.escalation import handle_human_response
 
@@ -282,6 +276,7 @@ async def _handle_escalation_reply(
             responsible_phone=responsible_phone,
             human_instruction=human_instruction,
             reference_message_id=reference_message_id,
+            habits_db=_habits_db,
         )
 
         if success:
@@ -303,25 +298,17 @@ async def _handle_escalation_reply(
 
 
 # ---------------------------------------------------------------------------
-# Human webhook (legacy endpoint — kept for compatibility)
+# Human webhook (kept for external integrations)
 # ---------------------------------------------------------------------------
 
 @app.post("/webhook/humano")
 async def webhook_humano(request: Request):
-    """Human-in-the-loop reply webhook.
-
-    NOTE: In the current architecture, escalation replies come through
-    the main /webhook/zapi endpoint (same Z-API instance) and are
-    detected by is_human_reply(). This endpoint is kept for:
-      - Future use with separate notification channels (N8N, panels)
-      - Direct API integration (external systems calling back)
-    """
+    """Human-in-the-loop reply webhook for external integrations."""
     try:
         payload = await request.json()
     except Exception:
         return JSONResponse({"error": "invalid json"}, status_code=400)
 
-    # Accept direct API calls with structured payload
     client_phone = payload.get("client_phone", "")
     human_instruction = payload.get("instruction", "")
     reference_id = payload.get("reference_message_id", "")
@@ -334,14 +321,10 @@ async def webhook_humano(request: Request):
         )
 
     if reference_id:
-        # Standard flow: resolve via notification mapping
         await _handle_escalation_reply(
             responsible_phone, human_instruction, reference_id,
         )
     else:
-        # Direct resolution: client_phone provided explicitly
-        from core.human.escalation import handle_human_response
-        # For direct calls, we need to find the escalation by phone
         esc_data = await _redis.get_escalation(client_phone)
         if esc_data:
             await _handle_escalation_reply(
@@ -373,18 +356,15 @@ def main():
     parser.add_argument("--log-level", type=str, default="INFO")
     args = parser.parse_args()
 
-    # Set CLIENT_ID for lifespan to pick up
     if args.client:
         os.environ["CLIENT_ID"] = args.client
 
-    # Setup logging
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper()),
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
         datefmt="%H:%M:%S",
     )
 
-    # Load config just to get the port
     client_id = os.environ.get("CLIENT_ID")
     if not client_id:
         print("❌ Set CLIENT_ID env var or pass --client")

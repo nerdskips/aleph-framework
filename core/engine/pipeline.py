@@ -6,7 +6,9 @@ The complete message processing flow:
   input text
     → input guardrail (deterministic, pre-LLM)
     → if redirect/block: return immediately (zero LLM cost)
-    → if escalate: pause agent, notify human, return hold message
+    → if escalate + habits enabled: search habits first
+      → if habit found: inject context, skip escalation, go to LLM
+      → if no habit: escalate to human
     → run agent (LLM via Bifrost, with fallback)
     → output guardrail (post-LLM validation)
     → if blocked: return safe response
@@ -44,6 +46,7 @@ class PipelineResult:
         output_check: OutputGuardrailResult | None = None,
         skipped_llm: bool = False,
         escalated: bool = False,
+        habit_used: bool = False,
         elapsed_seconds: float = 0.0,
     ):
         self.response = response
@@ -51,6 +54,7 @@ class PipelineResult:
         self.output_check = output_check
         self.skipped_llm = skipped_llm
         self.escalated = escalated
+        self.habit_used = habit_used
         self.elapsed_seconds = elapsed_seconds
 
 
@@ -65,6 +69,7 @@ async def process_message(
     phone: str = "",
     redis_session=None,
     sender=None,
+    habits_db=None,
 ) -> PipelineResult:
     """Process a message through the full pipeline.
 
@@ -75,12 +80,14 @@ async def process_message(
         phone: Client phone number (needed for escalation)
         redis_session: RedisSession instance (needed for escalation)
         sender: ZAPISender instance (needed for escalation)
+        habits_db: HabitsDatabase instance (needed for habit search)
 
     Returns:
         PipelineResult with response and metadata
     """
     start = time.monotonic()
     config = registry.config
+    habit_used = False
 
     # ---------------------------------------------------------------
     # 1. Input guardrail (deterministic, pre-LLM)
@@ -118,8 +125,6 @@ async def process_message(
         # BYPASS_LLM — for mechanical calculations (future: plug calc engine)
         if action == GuardrailAction.BYPASS_LLM:
             logger.info("Pipeline: BYPASS_LLM by '%s'", classification.pattern_name)
-            # For now, fall through to LLM. When calc engine is built,
-            # this will route to it instead.
             pass
 
         # INJECT — add extra instruction to the message for the LLM
@@ -135,9 +140,41 @@ async def process_message(
             )
 
         # -----------------------------------------------------------
-        # ESCALATE / ESCALATE_NO_HABIT — pause and notify human
+        # ESCALATE — search habits first, then escalate if no match
         # -----------------------------------------------------------
-        if action in (GuardrailAction.ESCALATE, GuardrailAction.ESCALATE_NO_HABIT):
+        if action == GuardrailAction.ESCALATE:
+            # Try habits BEFORE escalating (if enabled)
+            habit_context = await _search_habits_if_enabled(
+                config=config,
+                habits_db=habits_db,
+                user_message=user_message,
+            )
+
+            if habit_context:
+                # Habit found! Inject context and go to LLM instead of escalating
+                user_message = f"{user_message}\n\n{habit_context}"
+                habit_used = True
+                logger.info(
+                    "Pipeline: ESCALATE by '%s' → habit found, skipping escalation",
+                    classification.pattern_name,
+                )
+                # Fall through to LLM (step 2) with injected habit context
+            else:
+                # No habit found — escalate normally
+                result = await _handle_escalation(
+                    config=config,
+                    phone=phone,
+                    user_message=user_message,
+                    redis_session=redis_session,
+                    sender=sender,
+                    classification=classification,
+                    start=start,
+                )
+                if result:
+                    return result
+
+        # ESCALATE_NO_HABIT — always escalate, never check habits
+        if action == GuardrailAction.ESCALATE_NO_HABIT:
             result = await _handle_escalation(
                 config=config,
                 phone=phone,
@@ -149,15 +186,12 @@ async def process_message(
             )
             if result:
                 return result
-            # If escalation failed (no redis, no sender, etc),
-            # fall through to LLM as safety net
 
         # TAKEOVER — direct human takeover (different from escalation)
         if action == GuardrailAction.TAKEOVER:
             if redis_session and phone:
                 await redis_session.activate_takeover(phone)
                 logger.info("Pipeline: TAKEOVER activated for %s", phone)
-                # Still escalate to notify the responsible
                 result = await _handle_escalation(
                     config=config,
                     phone=phone,
@@ -225,15 +259,55 @@ async def process_message(
         response = output_result.safe_response
 
     elapsed = time.monotonic() - start
-    logger.info("Pipeline complete: %.1fs, blocked=%s, tools=%s", elapsed, output_result.blocked, tool_calls or "(none)")
+    logger.info(
+        "Pipeline complete: %.1fs, blocked=%s, tools=%s, habit=%s",
+        elapsed, output_result.blocked, tool_calls or "(none)", habit_used,
+    )
 
     return PipelineResult(
         response=response,
         input_classification=classification,
         output_check=output_result,
         skipped_llm=False,
+        habit_used=habit_used,
         elapsed_seconds=elapsed,
     )
+
+
+# ---------------------------------------------------------------------------
+# Habits search (internal)
+# ---------------------------------------------------------------------------
+
+async def _search_habits_if_enabled(
+    config,
+    habits_db,
+    user_message: str,
+) -> str | None:
+    """Search habits if enabled. Returns context string or None."""
+    if not config.habits.enabled:
+        return None
+
+    if not config.habits.search_before_escalate:
+        return None
+
+    if not habits_db:
+        logger.warning("Pipeline: habits enabled but no habits_db provided")
+        return None
+
+    try:
+        from core.habits.search import search_and_format
+
+        result = await search_and_format(
+            db=habits_db,
+            config=config.habits,
+            client_id=config.client_id,
+            query=user_message,
+        )
+        return result
+
+    except Exception as e:
+        logger.error("Pipeline: habit search failed: %s", str(e)[:200])
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +366,6 @@ async def _handle_escalation(
             elapsed_seconds=time.monotonic() - start,
         )
 
-    # escalate_to_human returned empty = something failed
     logger.warning(
         "Pipeline: escalation failed, falling through to LLM",
     )
