@@ -1,0 +1,126 @@
+# =============================================================================
+# Zuper Agent Framework — Agent Configuration
+# =============================================================================
+# Agent: {{AGENT_DISPLAY_NAME}}
+# Docs:  https://docs.zuper.com.br/agent/config
+#
+# This file defines everything about your agent: model, guardrails, tools,
+# human escalation, habits, and more. The framework reads this on startup.
+# =============================================================================
+
+client_id: "{{AGENT_NAME}}"
+
+# -----------------------------------------------------------------------------
+# Agent — LLM configuration
+# -----------------------------------------------------------------------------
+agent:
+  name: "{{AGENT_DISPLAY_NAME}}"
+  model: "{{MODEL}}"
+  # fallback_model: "openai/gpt-4.1-nano"    # Used if primary model fails
+  # temperature: 0.4
+  # max_tokens: 1024
+  # system_prompt_file: "prompts/system.md"   # Default path
+
+# -----------------------------------------------------------------------------
+# API — Server settings
+# -----------------------------------------------------------------------------
+api:
+  port: {{PORT}}
+
+# -----------------------------------------------------------------------------
+# Human-in-the-loop — Escalation to a human operator
+# -----------------------------------------------------------------------------
+human:
+  enabled: false
+  # responsible_phones: ["5534999999999"]     # WhatsApp numbers to notify
+  # escalation_session_ttl: 7200              # 2h — how long to wait for response
+  # hold_message: "Vou verificar com a equipe e já te retorno!"
+
+# -----------------------------------------------------------------------------
+# Guardrails — Input classification (pre-LLM, zero cost)
+# -----------------------------------------------------------------------------
+# guardrails:
+#   input_patterns:
+#     - name: "cancelamento"
+#       keywords: ["cancelar", "quero cancelar", "cancela"]
+#       action: "escalate"
+#       priority: 20
+#
+#     - name: "fora_de_escopo"
+#       keywords: ["futebol", "previsao do tempo"]
+#       action: "redirect"
+#       redirect_message: "Só consigo ajudar com assuntos do negócio!"
+#       priority: 10
+#
+#   output_rules:
+#     - name: "price_leak"
+#       enabled: true
+#     - name: "fabrication"
+#       enabled: true
+
+# -----------------------------------------------------------------------------
+# Messaging — WhatsApp behavior
+# -----------------------------------------------------------------------------
+# messaging:
+#   disclaimer:
+#     enabled: true
+#     text: "Agente de atendimento {{AGENT_DISPLAY_NAME}}"
+#   send_as_paragraphs: true
+#   paragraph_delay_min: 0.8
+#   paragraph_delay_max: 2.5
+
+# -----------------------------------------------------------------------------
+# Session — Buffer, anti-spam, locks (always on, can tune values)
+# -----------------------------------------------------------------------------
+# session:
+#   buffer_timeout: 8            # Seconds to wait for chunked messages
+#   antispam_ttl: 120            # Dedup window for same messageId
+#   processing_lock_ttl: 30      # Lock per phone during processing
+
+# -----------------------------------------------------------------------------
+# LLM — Provider configuration
+# -----------------------------------------------------------------------------
+# Default: auto-detects from .env keys (OPENAI_API_KEY, GEMINI_API_KEY, etc)
+# Uncomment to override:
+#
+# llm:
+#   provider: "openai"           # openai | gemini | deepseek | openrouter | bifrost | custom
+#   gateway_url: "http://localhost:8080/v1"  # Only for bifrost/custom
+
+# -----------------------------------------------------------------------------
+# Habits — Operational memory (requires Postgres + pgvector)
+# -----------------------------------------------------------------------------
+# habits:
+#   enabled: true
+#   auto_migrate: true
+#   search_before_escalate: true
+#   dedup_threshold: 0.020
+
+# -----------------------------------------------------------------------------
+# Tools — External integrations
+# -----------------------------------------------------------------------------
+# tools:
+#   - name: "consultar_pedido"
+#     type: "webhook"
+#     description: "Consulta status do pedido pelo número"
+#     webhook_url: "https://n8n.example.com/webhook/pedidos"
+#     parameters:
+#       numero_pedido:
+#         type: "string"
+#         description: "Número do pedido"
+#     returns: "JSON com status do pedido"
+#
+#   - name: "calcular_frete"
+#     type: "code"
+#     module: "frete"
+#     description: "Calcula frete por CEP"
+
+# -----------------------------------------------------------------------------
+# Debug — Logging & tracing
+# -----------------------------------------------------------------------------
+# debug:
+#   dry_run: false
+#   tracing:
+#     enabled: false
+#   logging:
+#     level: "INFO"

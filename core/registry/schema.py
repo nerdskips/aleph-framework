@@ -29,6 +29,8 @@ Debug/Observability:
 
 from __future__ import annotations
 
+import os
+
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -593,5 +595,7 @@ class FrameworkConfig(BaseModel):
 
     @property
     def client_dir(self) -> Path:
-        """Resolve path to this client's directory."""
+        agent_dir = os.environ.get("AGENT_DIR")
+        if agent_dir:
+            return Path(agent_dir)
         return Path("clients") / self.client_id

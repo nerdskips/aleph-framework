@@ -30,7 +30,7 @@ from core.registry.schema import FrameworkConfig
 
 DEFAULT_CONFIG_FILENAME = "config.yaml"
 CLIENTS_DIR = Path("clients")
-
+AGENT_DIR_ENV = "AGENT_DIR"
 
 # ---------------------------------------------------------------------------
 # Loader
