@@ -19,6 +19,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import asyncio
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -502,6 +503,192 @@ def _print_result(errors: list, warnings: list):
             border_style="green",
         ))
 
+# ---------------------------------------------------------------------------
+# knowledge
+# ---------------------------------------------------------------------------
+
+@app.command()
+def knowledge(
+    action: str = typer.Argument(help="Action: load, list, clear"),
+    name: str = typer.Argument(help="Agent name (directory name)"),
+    file: str = typer.Option(None, "--file", "-f", help="File to load"),
+    dir_path: str = typer.Option(None, "--dir", "-d", help="Directory to load"),
+    source: str = typer.Option(None, "--source", "-s", help="Source filter (for clear)"),
+):
+    """Manage agent knowledge base: load, list, clear."""
+    agent_dir = _agent_dir(name)
+    if not agent_dir.is_dir():
+        console.print(f"[red]✗[/red] Agent directory not found: {agent_dir}")
+        raise typer.Exit(1)
+
+    config_path = agent_dir / "config.yaml"
+    if not config_path.is_file():
+        console.print(f"[red]✗[/red] config.yaml not found in {agent_dir}")
+        raise typer.Exit(1)
+
+    # Load config
+    import yaml
+    with open(config_path) as f:
+        raw = yaml.safe_load(f)
+
+    client_id = raw.get("client_id", name)
+
+    # Load .env if present
+    env_path = agent_dir / ".env"
+    if env_path.is_file():
+        from dotenv import load_dotenv
+        load_dotenv(env_path)
+
+    if action == "load":
+        asyncio.run(_knowledge_load(client_id, raw, file, dir_path, agent_dir))
+    elif action == "list":
+        asyncio.run(_knowledge_list(client_id, raw))
+    elif action == "clear":
+        asyncio.run(_knowledge_clear(client_id, raw, source))
+    else:
+        console.print(f"[red]✗[/red] Unknown action: {action}. Use: load, list, clear")
+        raise typer.Exit(1)
+
+
+async def _knowledge_load(client_id: str, raw: dict, file: str | None, dir_path: str | None, agent_dir: Path):
+    """Load files into knowledge base."""
+    if not file and not dir_path:
+        console.print("[red]✗[/red] Specify --file or --dir")
+        raise typer.Exit(1)
+
+    from core.registry.schema import KnowledgeConfig
+    from core.knowledge.database import KnowledgeDatabase
+    from core.knowledge.loader import load_file, load_directory
+    from core.knowledge.ingest import ingest_documents
+
+    knowledge_raw = raw.get("knowledge", {})
+    config = KnowledgeConfig(**knowledge_raw)
+
+    if not config.enabled:
+        console.print("[red]✗[/red] knowledge.enabled=false in config.yaml")
+        raise typer.Exit(1)
+
+    db = KnowledgeDatabase(config)
+    await db.connect()
+    await db.bootstrap()
+
+    try:
+        docs = []
+        if file:
+            path = Path(file)
+            if not path.is_absolute():
+                path = agent_dir / path
+            docs.append(load_file(path))
+            console.print(f"[green]✓[/green] Loaded: {path.name} ({len(docs[0].content)} chars)")
+
+        if dir_path:
+            path = Path(dir_path)
+            if not path.is_absolute():
+                path = agent_dir / path
+            loaded = load_directory(path)
+            docs.extend(loaded)
+            console.print(f"[green]✓[/green] Loaded {len(loaded)} files from {path}")
+
+        if not docs:
+            console.print("[yellow]![/yellow] No files loaded")
+            return
+
+        console.print(f"\n[bold]Ingesting {len(docs)} document(s)...[/bold]")
+        total = await ingest_documents(db, config, client_id, docs)
+        console.print(f"\n[green]✓[/green] Ingestion complete: {total} chunks stored")
+
+    finally:
+        await db.close()
+
+
+async def _knowledge_list(client_id: str, raw: dict):
+    """List knowledge base contents."""
+    from core.registry.schema import KnowledgeConfig
+    from core.knowledge.database import KnowledgeDatabase
+
+    knowledge_raw = raw.get("knowledge", {})
+    config = KnowledgeConfig(**knowledge_raw)
+
+    if not config.enabled:
+        console.print("[red]✗[/red] knowledge.enabled=false in config.yaml")
+        raise typer.Exit(1)
+
+    schema = config.schema
+    table = config.table_name
+    full_table = f"{schema}.{table}" if schema != "public" else table
+
+    db = KnowledgeDatabase(config)
+    await db.connect()
+
+    try:
+        async with db.pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT source, COUNT(*) as chunks, 
+                       SUM(LENGTH(content)) as total_chars,
+                       MIN(created_at) as first_added
+                FROM {full_table}
+                WHERE client_id = $1
+                GROUP BY source
+                ORDER BY source
+                """,
+                client_id,
+            )
+
+        if rows:
+            console.print(f"\n[bold]Knowledge base for '{client_id}':[/bold]\n")
+            total_chunks = 0
+            for row in rows:
+                chunks = row["chunks"]
+                total_chunks += chunks
+                chars = row["total_chars"]
+                source = row["source"] or "(unknown)"
+                console.print(f"  📄 {source} — {chunks} chunks, {chars:,} chars")
+
+            console.print(f"\n  Total: {total_chunks} chunks across {len(rows)} source(s)")
+        else:
+            console.print(f"[dim]No knowledge base entries for '{client_id}'[/dim]")
+
+    finally:
+        await db.close()
+
+
+async def _knowledge_clear(client_id: str, raw: dict, source: str | None):
+    """Clear knowledge base entries."""
+    from core.registry.schema import KnowledgeConfig
+    from core.knowledge.database import KnowledgeDatabase
+
+    knowledge_raw = raw.get("knowledge", {})
+    config = KnowledgeConfig(**knowledge_raw)
+
+    if not config.enabled:
+        console.print("[red]✗[/red] knowledge.enabled=false in config.yaml")
+        raise typer.Exit(1)
+
+    schema = config.schema
+    table = config.table_name
+    full_table = f"{schema}.{table}" if schema != "public" else table
+
+    db = KnowledgeDatabase(config)
+    await db.connect()
+
+    try:
+        async with db.pool.acquire() as conn:
+            if source:
+                result = await conn.execute(
+                    f"DELETE FROM {full_table} WHERE client_id = $1 AND source = $2",
+                    client_id, source,
+                )
+                console.print(f"[green]✓[/green] Cleared chunks from source '{source}': {result}")
+            else:
+                result = await conn.execute(
+                    f"DELETE FROM {full_table} WHERE client_id = $1",
+                    client_id,
+                )
+                console.print(f"[green]✓[/green] Cleared all knowledge for '{client_id}': {result}")
+
+    finally:
+        await db.close()
 
 # ---------------------------------------------------------------------------
 # Entry point

@@ -49,6 +49,7 @@ _redis: RedisSession | None = None
 _sender: ZAPISender | None = None
 _habits_db = None  # HabitsDatabase | None — initialized only if habits.enabled
 _buffer_timers: dict[str, asyncio.Task] = {}
+_knowledge_db = None
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +59,7 @@ _buffer_timers: dict[str, asyncio.Task] = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Boot the framework on startup, cleanup on shutdown."""
-    global _registry, _redis, _sender, _habits_db
+    global _registry, _redis, _sender, _habits_db, _knowledge_db
 
     client_id = os.environ.get("CLIENT_ID")
     if not client_id:
@@ -91,6 +92,23 @@ async def lifespan(app: FastAPI):
                 str(e)[:200],
             )
             _habits_db = None
+            
+    # Init Knowledge database (only if enabled)
+    if _registry.config.knowledge.enabled:
+        try:
+            from core.knowledge.database import KnowledgeDatabase
+
+            _knowledge_db = KnowledgeDatabase(_registry.config.knowledge)
+            await _knowledge_db.connect()
+            await _knowledge_db.bootstrap()
+            logger.info("Knowledge database connected and bootstrapped")
+        except Exception as e:
+            logger.error(
+                "Knowledge database initialization failed: %s. "
+                "Knowledge will be disabled for this session.",
+                str(e)[:200],
+            )
+            _knowledge_db = None
 
     logger.info(
         "🚀 %s online — port %d — model %s — habits %s",
@@ -103,6 +121,8 @@ async def lifespan(app: FastAPI):
     yield
 
     # Cleanup
+    if _knowledge_db:
+        await _knowledge_db.close()
     if _habits_db:
         await _habits_db.close()
     if _sender:
@@ -236,6 +256,7 @@ async def _process_after_buffer(phone: str):
                 redis_session=_redis,
                 sender=_sender,
                 habits_db=_habits_db,
+                knowledge_db=_knowledge_db,
             )
 
             logger.info(

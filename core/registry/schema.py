@@ -313,6 +313,31 @@ class HabitsConfig(BaseModel):
     table_name: str = Field("operational_habits", description="Postgres table name")
     schema: str = Field("public", description="Postgres schema (useful for Supabase)")
 
+class KnowledgeConfig(BaseModel):
+    """Knowledge base RAG (hybrid search + contextual retrieval).
+    DEFAULT OFF — enable when agent needs a searchable knowledge base.
+
+    Database: any Postgres with pgvector extension.
+    Can share the same DATABASE_URL as habits (different schema/table).
+
+    Auto-migrate: when enabled, creates schema, table, indexes,
+    and the hybrid search function on first startup.
+    """
+    enabled: bool = Field(False)
+    auto_migrate: bool = Field(True, description="Create table/functions on startup if not exist")
+    embedding_model: str = Field("openai/text-embedding-3-small", description="Embedding model")
+    embedding_dimensions: int = Field(1536, description="Must match the embedding model output dims")
+    schema: str = Field("knowledge", description="Postgres schema (separate from habits)")
+    table_name: str = Field("knowledge_base", description="Postgres table name")
+    auto_search: bool = Field(True, description="Search knowledge before every LLM call")
+    auto_search_top_k: int = Field(5, ge=1, le=20, description="How many chunks to inject pre-LLM")
+    tool_search: bool = Field(True, description="Also expose as a callable tool for the agent")
+    similarity_threshold: float = Field(0.7, ge=0.0, le=1.0, description="Min relevance to include")
+    match_count: int = Field(5, ge=1, description="Max results from hybrid search")
+    rrf_k: int = Field(60, ge=1, description="RRF ranking constant")
+    chunk_size: int = Field(500, ge=100, le=2000, description="Tokens per chunk during ingestion")
+    chunk_overlap: int = Field(75, ge=0, le=500, description="Token overlap between chunks")
+    rerank: bool = Field(False, description="Enable reranking (future)")
 
 # ---------------------------------------------------------------------------
 # Messaging — WhatsApp I/O
@@ -546,6 +571,9 @@ class FrameworkConfig(BaseModel):
       DEFAULT OFF: habits, follow_up, media, queue,
                    sdk.handoffs, dry_run
     """
+    # Knowledge reference for RAG — optional, enables knowledge base features
+    knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
+    
     # Identity (required)
     client_id: str = Field(..., description="Unique client identifier (e.g. 'lecrocant', 'example')")
     agent: AgentConfig

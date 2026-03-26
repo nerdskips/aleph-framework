@@ -70,6 +70,7 @@ async def process_message(
     redis_session=None,
     sender=None,
     habits_db=None,
+    knowledge_db=None,
 ) -> PipelineResult:
     """Process a message through the full pipeline.
 
@@ -226,6 +227,27 @@ async def process_message(
                 escalated=True,
                 elapsed_seconds=time.monotonic() - start,
             )
+
+# ---------------------------------------------------------------
+    # 1.8 Knowledge search (pre-LLM, every message)
+    # ---------------------------------------------------------------
+    if config.knowledge.enabled and config.knowledge.auto_search and knowledge_db:
+        try:
+            from core.knowledge.search import search_and_format as knowledge_search
+
+            knowledge_context = await knowledge_search(
+                db=knowledge_db,
+                config=config.knowledge,
+                client_id=config.client_id,
+                query=user_message,
+            )
+
+            if knowledge_context:
+                user_message = f"{user_message}\n\n{knowledge_context}"
+                logger.info("Pipeline: knowledge context injected (%d chars)", len(knowledge_context))
+
+        except Exception as e:
+            logger.error("Pipeline: knowledge search failed: %s", str(e)[:200])
 
     # ---------------------------------------------------------------
     # 2. Run agent (LLM with automatic fallback)

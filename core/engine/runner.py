@@ -21,6 +21,10 @@ and produces a response string. It does NOT handle:
 
 from __future__ import annotations
 
+from datetime import datetime
+import zoneinfo
+import os
+
 import asyncio
 import logging
 import time
@@ -59,9 +63,20 @@ def build_agent(
     Returns:
         Configured SDK Agent ready to run
     """
+    # Inject current datetime if TZ is set
+    instructions = registry.system_prompt
+    tz = os.environ.get("TZ")
+    if tz:
+        try:
+            now = datetime.now(zoneinfo.ZoneInfo(tz))
+            timestamp = now.strftime("%A, %d/%m/%Y, %H:%M")
+            instructions = f"[Data e horário atual: {timestamp} ({tz})]\n\n{instructions}"
+        except Exception:
+            pass  # Invalid TZ, skip silently
+
     agent = Agent(
         name=registry.agent_name,
-        instructions=registry.system_prompt,
+        instructions=instructions,
         model=model,
         model_settings=model_settings,
         tools=registry.tools,
