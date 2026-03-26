@@ -13,6 +13,7 @@ Commands:
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
@@ -689,6 +690,126 @@ async def _knowledge_clear(client_id: str, raw: dict, source: str | None):
 
     finally:
         await db.close()
+
+# ---------------------------------------------------------------------------
+# chat (interactive runner)
+# ---------------------------------------------------------------------------
+
+@app.command()
+def chat(
+    name: str = typer.Argument(help="Agent name (directory name)"),
+    log_level: str = typer.Option("INFO", "--log-level", "-l", help="Log level"),
+):
+    """Interactive chat with the agent (terminal mode, no WhatsApp needed)."""
+    agent_dir = _agent_dir(name)
+    if not agent_dir.is_dir():
+        console.print(f"[red]✗[/red] Agent directory not found: {agent_dir}")
+        raise typer.Exit(1)
+
+    # Load .env
+    env_path = agent_dir / ".env"
+    if env_path.is_file():
+        from dotenv import load_dotenv
+        load_dotenv(env_path, override=True)
+
+    # Set AGENT_DIR so the framework finds config/prompts/tools here
+    os.environ["AGENT_DIR"] = str(agent_dir)
+
+    # Setup logging
+    logging.basicConfig(
+        level=getattr(logging, log_level.upper()),
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    # Boot registry
+    try:
+        from core.registry.registry import AgentRegistry
+        registry = AgentRegistry.from_config()
+        console.print(f"\n[green]✓[/green] Agent loaded: [bold]{registry.agent_name}[/bold]")
+        console.print(f"  Model: {registry.config.agent.model}")
+        console.print(f"  Knowledge: {'ON' if registry.config.knowledge.enabled else 'OFF'}")
+        console.print(f"  Habits: {'ON' if registry.config.habits.enabled else 'OFF'}")
+    except Exception as e:
+        console.print(f"[red]✗[/red] Boot failed: {e}")
+        raise typer.Exit(1)
+
+    # Init knowledge DB if enabled
+    knowledge_db = None
+    if registry.config.knowledge.enabled:
+        try:
+            from core.knowledge.database import KnowledgeDatabase
+            knowledge_db = KnowledgeDatabase(registry.config.knowledge)
+            asyncio.run(_connect_knowledge(knowledge_db))
+            console.print(f"  [green]✓[/green] Knowledge DB connected")
+        except Exception as e:
+            console.print(f"  [yellow]![/yellow] Knowledge DB failed: {e}")
+
+    console.print(f"\n💬 Interactive mode — type 'quit' to exit")
+    console.print("-" * 40)
+
+    from core.engine.pipeline import process_message
+    history = []
+
+    while True:
+        try:
+            user_input = input("\n👤 You: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print("\n👋 Bye!")
+            break
+
+        if user_input.lower() in ("quit", "exit", "q"):
+            console.print("👋 Bye!")
+            break
+
+        if not user_input:
+            continue
+
+        result = asyncio.run(_chat_message(
+            registry, user_input, history, knowledge_db,
+        ))
+
+        # Show guardrail info
+        if result.input_classification and result.input_classification.matched:
+            cls = result.input_classification
+            console.print(f"  🛡️ Guardrail: {cls.pattern_name} → {cls.action.value}")
+
+        if result.output_check and result.output_check.blocked:
+            console.print(f"  🚫 Output blocked: {result.output_check.rule_name}")
+
+        if result.skipped_llm:
+            console.print(f"  ⚡ LLM skipped (guardrail handled)")
+
+        if result.habit_used:
+            console.print(f"  📚 Habit context used")
+
+        console.print(f"\n🤖 {registry.agent_name}: {result.response}")
+        console.print(f"  ⏱️ {result.elapsed_seconds:.1f}s")
+
+        history.append({"role": "user", "content": user_input})
+        history.append({"role": "assistant", "content": result.response})
+
+    # Cleanup
+    if knowledge_db:
+        asyncio.run(_close_knowledge(knowledge_db))
+
+
+async def _connect_knowledge(db):
+    await db.connect()
+
+
+async def _close_knowledge(db):
+    await db.close()
+
+
+async def _chat_message(registry, user_input, history, knowledge_db):
+    from core.engine.pipeline import process_message
+    return await process_message(
+        registry=registry,
+        user_message=user_input,
+        message_history=history,
+        knowledge_db=knowledge_db,
+    )
 
 # ---------------------------------------------------------------------------
 # Entry point
