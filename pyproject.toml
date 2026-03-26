@@ -67,7 +67,7 @@ dev = [
 ]
 
 [project.scripts]
-aleph = "core.cli.main:app"
+aleph-agent = "core.cli.main:app"
 
 [project.urls]
 Homepage = "https://github.com/aleph-framework/aleph"
