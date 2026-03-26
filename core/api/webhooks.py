@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — FastAPI Webhooks
+Aleph Framework — FastAPI Webhooks
 ==========================================
 The entry point. Receives Z-API webhooks and drives the full pipeline:
   webhook → filter → anti-spam → buffer → [wait] → consume → lock → run agent → send
@@ -38,7 +38,7 @@ from core.messaging.zapi_filter import (
 from core.messaging.zapi_send import ZAPISender
 from core.engine.pipeline import process_message
 
-logger = logging.getLogger("zuper.api")
+logger = logging.getLogger("aleph.api")
 
 # ---------------------------------------------------------------------------
 # Global state (initialized on startup)
@@ -112,7 +112,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutdown complete")
 
 
-app = FastAPI(title="Zuper Agent Framework", lifespan=lifespan)
+app = FastAPI(title="Aleph Framework", lifespan=lifespan)
 
 
 # ---------------------------------------------------------------------------
@@ -350,7 +350,7 @@ def main():
     import argparse
     import uvicorn
 
-    parser = argparse.ArgumentParser(description="Zuper Agent Framework — Server")
+    parser = argparse.ArgumentParser(description="Aleph Framework — Server")
     parser.add_argument("--client", type=str, help="Client ID (overrides CLIENT_ID env var)")
     parser.add_argument("--port", type=int, help="Port override")
     parser.add_argument("--log-level", type=str, default="INFO")

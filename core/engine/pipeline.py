@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Execution Pipeline
+Aleph Framework — Execution Pipeline
 =============================================
 The complete message processing flow:
 
@@ -29,7 +29,7 @@ from core.guardrails.input import classify_input, ClassificationResult
 from core.guardrails.output import check_output, OutputGuardrailResult
 from core.engine.runner import run_agent
 
-logger = logging.getLogger("zuper.pipeline")
+logger = logging.getLogger("aleph.pipeline")
 
 
 # ---------------------------------------------------------------------------

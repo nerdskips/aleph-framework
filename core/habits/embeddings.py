@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Habits Embeddings
+Aleph Framework — Habits Embeddings
 ============================================
 Generates text embeddings via Bifrost LLM gateway.
 
@@ -18,7 +18,7 @@ import httpx
 
 from core.registry.schema import HabitsConfig
 
-logger = logging.getLogger("zuper.habits")
+logger = logging.getLogger("aleph.habits")
 
 
 async def generate_embedding(

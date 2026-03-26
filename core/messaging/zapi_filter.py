@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Z-API Webhook Filter
+Aleph Framework — Z-API Webhook Filter
 ===============================================
 Filters incoming Z-API webhook payloads.
 Discards non-message events before they reach the pipeline.
@@ -14,7 +14,7 @@ from typing import Any
 
 from core.registry.schema import FrameworkConfig
 
-logger = logging.getLogger("zuper.messaging")
+logger = logging.getLogger("aleph.messaging")
 
 
 def extract_message(payload: dict) -> dict | None:

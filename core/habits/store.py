@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Habits Store
+Aleph Framework — Habits Store
 =======================================
 Saves operational habits after human escalation resolution.
 
@@ -27,7 +27,7 @@ from core.habits.database import HabitsDatabase
 from core.habits.embeddings import generate_embedding
 from core.registry.schema import HabitsConfig
 
-logger = logging.getLogger("zuper.habits")
+logger = logging.getLogger("aleph.habits")
 
 
 # ---------------------------------------------------------------------------

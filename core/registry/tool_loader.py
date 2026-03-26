@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Dynamic Tool Loader
+Aleph Framework — Dynamic Tool Loader
 =============================================
 Imports tool modules from a client's tools/ directory and extracts
 functions decorated with @function_tool (from OpenAI Agents SDK).

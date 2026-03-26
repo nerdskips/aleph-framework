@@ -78,7 +78,7 @@ def test_example_config():
     assert config.messaging.filter_broadcasts is True
     assert config.messaging.filter_reactions is True
     assert config.messaging.filter_edits is True
-    assert config.messaging.disclaimer.text == "Echo Bot — Zuper Agent Framework test"
+    assert config.messaging.disclaimer.text == "Echo Bot — Aleph Framework test"
 
     # --- ALWAYS ON: LLM ---
     assert config.llm.gateway_url == "http://bifrost:8080/v1"

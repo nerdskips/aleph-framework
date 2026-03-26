@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Redis Session Manager
+Aleph Framework — Redis Session Manager
 ================================================
 Manages WhatsApp-specific state in Redis:
   - Message buffer (chunked messages consolidation)
@@ -7,8 +7,8 @@ Manages WhatsApp-specific state in Redis:
   - Processing lock (per phone, prevents duplicate responses)
   - Client context (name, neighborhood, preferences)
 
-All keys are prefixed with zuper:{client_id}: for multi-agent isolation
-on shared Redis (CloudFy).
+All keys are prefixed with aleph:{client_id}: for multi-agent isolation
+on shared Redis.
 
 Environment:
   REDIS_URL — Redis connection string (e.g. redis://:pass@host:port/0)
@@ -27,19 +27,19 @@ from core.session.redis_escalation import EscalationData
 
 from core.registry.schema import FrameworkConfig
 
-logger = logging.getLogger("zuper.session")
+logger = logging.getLogger("aleph.session")
 
 
 class RedisSession:
     """Redis session manager for a single agent instance.
 
     All operations are async. Keys are automatically prefixed
-    with zuper:{client_id}: for isolation.
+    with aleph:{client_id}: for isolation.
     """
 
     def __init__(self, config: FrameworkConfig):
         self.config = config
-        self.prefix = f"zuper:{config.client_id}"
+        self.prefix = f"aleph:{config.client_id}"
         self._client: aioredis.Redis | None = None
 
     async def connect(self) -> None:
@@ -70,7 +70,7 @@ class RedisSession:
         return self._client
 
     def _key(self, *parts: str) -> str:
-        """Build a prefixed Redis key: zuper:{client_id}:{parts}"""
+        """Build a prefixed Redis key: aleph:{client_id}:{parts}"""
         return ":".join([self.prefix, *parts])
 
     # -------------------------------------------------------------------

@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Habits Search
+Aleph Framework — Habits Search
 ========================================
 Hybrid search using Reciprocal Rank Fusion (RRF).
 
@@ -24,7 +24,7 @@ from core.habits.database import HabitsDatabase
 from core.habits.embeddings import generate_embedding
 from core.registry.schema import HabitsConfig
 
-logger = logging.getLogger("zuper.habits")
+logger = logging.getLogger("aleph.habits")
 
 
 # ---------------------------------------------------------------------------

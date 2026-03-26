@@ -1,14 +1,14 @@
 """
-Zuper Agent Framework — CLI
+Aleph Framework — CLI
 =============================
-Entry point for the `zuper-agent` command.
+Entry point for the `aleph` command.
 
 Commands:
-  zuper-agent init <name>     Create a new agent scaffold
-  zuper-agent start [name]    Build & run the agent container
-  zuper-agent stop [name]     Stop the agent container
-  zuper-agent test [name]     Validate config + boot check
-  zuper-agent list            List agents in current directory
+  aleph init <name>     Create a new agent scaffold
+  aleph start [name]    Build & run the agent container
+  aleph stop [name]     Stop the agent container
+  aleph test [name]     Validate config + boot check
+  aleph list            List agents in current directory
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 app = typer.Typer(
-    name="zuper-agent",
+    name="aleph",
     help="Config-driven framework for WhatsApp AI agents",
     add_completion=False,
     no_args_is_help=True,
@@ -53,12 +53,12 @@ def _require_docker():
 
 def _container_name(agent_name: str) -> str:
     """Standard container name for an agent."""
-    return f"zuper-agent-{agent_name}"
+    return f"aleph-{agent_name}"
 
 
 def _image_name(agent_name: str) -> str:
     """Standard image name for an agent."""
-    return f"zuper-agent-{agent_name}:latest"
+    return f"aleph-{agent_name}:latest"
 
 
 def _run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
@@ -93,7 +93,7 @@ def init(
 
     console.print(Panel(
         f"Creating agent [bold cyan]{name}[/bold cyan] at {agent_dir}",
-        title="zuper-agent init",
+        title="aleph init",
         border_style="green",
     ))
 
@@ -159,8 +159,8 @@ def init(
     console.print(f"  1. Edit [cyan]{name}/.env[/cyan] with your API keys and Z-API credentials")
     console.print(f"  2. Edit [cyan]{name}/prompts/system.md[/cyan] with your agent's personality")
     console.print(f"  3. Edit [cyan]{name}/config.yaml[/cyan] to add guardrails and tools")
-    console.print(f"  4. Run [cyan]zuper-agent test {name}[/cyan] to validate")
-    console.print(f"  5. Run [cyan]zuper-agent start {name}[/cyan] to launch")
+    console.print(f"  4. Run [cyan]aleph test {name}[/cyan] to validate")
+    console.print(f"  5. Run [cyan]aleph start {name}[/cyan] to launch")
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +180,7 @@ def start(
     agent_dir = _agent_dir(name)
     if not agent_dir.is_dir():
         console.print(f"[red]✗[/red] Agent directory not found: {agent_dir}")
-        console.print(f"  Run [cyan]zuper-agent init {name}[/cyan] first.")
+        console.print(f"  Run [cyan]aleph init {name}[/cyan] first.")
         raise typer.Exit(1)
 
     if not (agent_dir / "Dockerfile").is_file():
@@ -199,7 +199,7 @@ def start(
         f"  Image:     {image}\n"
         f"  Container: {container}\n"
         f"  Port:      {port}",
-        title="zuper-agent start",
+        title="aleph start",
         border_style="green",
     ))
 
@@ -244,7 +244,7 @@ def start(
         console.print()
         console.print("[bold]Useful commands:[/bold]")
         console.print(f"  Logs:    [cyan]docker logs -f {container}[/cyan]")
-        console.print(f"  Stop:    [cyan]zuper-agent stop {name}[/cyan]")
+        console.print(f"  Stop:    [cyan]aleph stop {name}[/cyan]")
         console.print(f"  Health:  [cyan]curl http://localhost:{port}/health[/cyan]")
 
 
@@ -295,7 +295,7 @@ def test(
 
     console.print(Panel(
         f"Validating agent [bold cyan]{name}[/bold cyan]",
-        title="zuper-agent test",
+        title="aleph test",
         border_style="blue",
     ))
 
@@ -329,8 +329,8 @@ def test(
         console.print(f"      Agent:     {config.agent.name}")
         console.print(f"      Model:     {config.agent.model}")
     except ImportError:
-        # zuper-agent not installed — do basic field checks
-        console.print("  [yellow]![/yellow] zuper-agent package not installed, doing basic checks")
+        # aleph not installed — do basic field checks
+        console.print("  [yellow]![/yellow] aleph package not installed, doing basic checks")
         _basic_field_check(raw, errors, warnings)
     except Exception as e:
         errors.append(f"Schema validation failed: {e}")
@@ -433,7 +433,7 @@ def list_agents():
             console.print(f"  {status}  {a}")
     else:
         console.print("[dim]No agents found in current directory.[/dim]")
-        console.print(f"  Run [cyan]zuper-agent init <name>[/cyan] to create one.")
+        console.print(f"  Run [cyan]aleph init <name>[/cyan] to create one.")
 
 
 # ---------------------------------------------------------------------------

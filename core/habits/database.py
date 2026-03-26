@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Habits Database
+Aleph Framework — Habits Database
 ==========================================
 Manages Postgres connection and auto-bootstrap for operational habits.
 
@@ -31,7 +31,7 @@ import asyncpg
 
 from core.registry.schema import HabitsConfig
 
-logger = logging.getLogger("zuper.habits")
+logger = logging.getLogger("aleph.habits")
 
 
 # ---------------------------------------------------------------------------

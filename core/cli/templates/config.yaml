@@ -1,8 +1,8 @@
 # =============================================================================
-# Zuper Agent Framework — Agent Configuration
+# Aleph Framework — Agent Configuration
 # =============================================================================
 # Agent: {{AGENT_DISPLAY_NAME}}
-# Docs:  https://docs.zuper.com.br/agent/config
+# Docs:  https://docs.aleph.dev/agent/config
 #
 # This file defines everything about your agent: model, guardrails, tools,
 # human escalation, habits, and more. The framework reads this on startup.

@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Webhook Tool Generator
+Aleph Framework — Webhook Tool Generator
 =================================================
 Generates SDK @function_tool instances dynamically from YAML webhook
 definitions. The LLM sees a normal tool with name, description, and
@@ -38,7 +38,7 @@ import httpx
 from agents import function_tool
 from core.registry.schema import ToolRef, ToolType, WebhookParam, ParamsIn
 
-logger = logging.getLogger("zuper.tools")
+logger = logging.getLogger("aleph.tools")
 
 
 # ---------------------------------------------------------------------------

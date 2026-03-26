@@ -1,4 +1,4 @@
-# Zuper Agent Framework — Fase 3: Hábitos Operacionais
+# Aleph Framework — Fase 3: Hábitos Operacionais
 
 > Atualizado em 24/03/2026 — Sessão de desenvolvimento com Claude Opus 4.6
 > Repo: `/root/zuper-framework/` no server Hostinger KVM2

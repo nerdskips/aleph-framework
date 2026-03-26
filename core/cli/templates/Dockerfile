@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install framework from PyPI
-RUN pip install --no-cache-dir zuper-agent
+RUN pip install --no-cache-dir aleph
 
 # Copy agent files (config, prompts, tools, data)
 COPY config.yaml ./agent/config.yaml

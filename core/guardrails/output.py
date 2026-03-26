@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Output Guardrails Engine
+Aleph Framework — Output Guardrails Engine
 ==================================================
 Post-LLM validation. Checks agent response for:
   - Fabricated information (addresses, internal data, fake branches)
@@ -23,7 +23,7 @@ from core.registry.schema import (
     OutputGuardrailRule,
 )
 
-logger = logging.getLogger("zuper.guardrails")
+logger = logging.getLogger("aleph.guardrails")
 
 
 # ---------------------------------------------------------------------------

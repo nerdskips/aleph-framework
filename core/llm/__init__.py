@@ -1,4 +1,4 @@
-"""Zuper Agent Framework — LLM gateway (Bifrost)."""
+"""Aleph Framework — LLM gateway (Bifrost)."""
 
 from core.llm.bifrost import (
     create_primary_model,

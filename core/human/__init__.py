@@ -1,4 +1,4 @@
-""" Zuper Agent Framework — Human-in-the-loop module
+""" Aleph Framework — Human-in-the-loop module
 ===================================================
 Escalation + takeover + resolution.
 """

@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Config Schema
+Aleph Framework — Config Schema
 ======================================
 Pydantic models defining the exact shape of config.yaml.
 
@@ -147,7 +147,7 @@ class SDKSessionsConfig(BaseModel):
     """SDK 0.12 native Sessions with Redis.
     Replaces manual history management from session.py."""
     enabled: bool = Field(True, description="Use SDK native Redis sessions for conversation history")
-    redis_key_prefix: str = Field("zuper:session:", description="Redis key prefix for SDK sessions")
+    redis_key_prefix: str = Field("aleph:session:", description="Redis key prefix for SDK sessions")
     history_limit: int = Field(50, ge=5, description="Max messages kept in SDK session history")
     ttl: int = Field(10800, ge=60, description="Session TTL in seconds (default 3h)")
 

@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Agent Runner
+Aleph Framework — Agent Runner
 ======================================
 Builds an OpenAI Agents SDK Agent from the Registry and executes it.
 
@@ -37,7 +37,7 @@ from core.llm.bifrost import (
     create_model_settings,
 )
 
-logger = logging.getLogger("zuper.engine")
+logger = logging.getLogger("aleph.engine")
 
 
 # ---------------------------------------------------------------------------
@@ -246,7 +246,7 @@ def main():
     import sys
 
     parser = argparse.ArgumentParser(
-        description="Zuper Agent Framework — Terminal Runner"
+        description="Aleph Framework — Terminal Runner"
     )
     parser.add_argument("--client", type=str, required=True, help="Client ID")
     parser.add_argument("--message", type=str, help="Single message to send")

@@ -1,4 +1,4 @@
-"""Zuper Agent Framework — Redis session (buffer, anti-spam, locks)."""
+"""Aleph Framework — Redis session (buffer, anti-spam, locks)."""
 
 from core.session.redis import RedisSession
 

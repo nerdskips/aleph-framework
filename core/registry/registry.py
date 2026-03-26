@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Agent Registry
+Aleph Framework — Agent Registry
 ========================================
 The central bootstrap class that wires config → runtime objects.
 
@@ -207,7 +207,7 @@ def main():
     """CLI: python -m core.registry --client <id>"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Zuper Agent Framework — Registry Boot")
+    parser = argparse.ArgumentParser(description="Aleph Framework — Registry Boot")
     parser.add_argument("--client", type=str, help="Client ID (e.g. 'example')")
     parser.add_argument("--path", type=str, help="Direct path to config.yaml")
     parser.add_argument("--skip-tools", action="store_true", help="Skip tool loading (no SDK needed)")

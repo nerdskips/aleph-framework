@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Config Loader
+Aleph Framework — Config Loader
 ======================================
 Reads a client's config.yaml, validates it against the Pydantic schema,
 and returns a typed FrameworkConfig object.
@@ -178,7 +178,7 @@ def main():
     """CLI: python -m core.registry.loader --client <id>"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Zuper Agent Framework — Config Loader")
+    parser = argparse.ArgumentParser(description="Aleph Framework — Config Loader")
     parser.add_argument("--client", type=str, help="Client ID (e.g. 'example')")
     parser.add_argument("--path", type=str, help="Direct path to config.yaml")
     parser.add_argument("--list", action="store_true", help="List available clients")

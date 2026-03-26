@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Redis Escalation Operations
+Aleph Framework — Redis Escalation Operations
 ======================================================
 Extension methods for RedisSession to handle escalation state.
 
@@ -10,8 +10,8 @@ These methods manage the escalation lifecycle:
   - Map notification messageId → client phone (for quote tracking)
 
 Keys:
-  zuper:{client_id}:esc:{phone}         → Escalation session JSON
-  zuper:{client_id}:esc_msg:{messageId} → Client phone (reverse lookup from quote)
+  aleph:{client_id}:esc:{phone}         → Escalation session JSON
+  aleph:{client_id}:esc_msg:{messageId} → Client phone (reverse lookup from quote)
 """
 # NOTE: These methods should be added to RedisSession in core/session/redis.py
 # They are here as a separate file for development reference and clean diff.
@@ -24,7 +24,7 @@ import logging
 import time
 from typing import Any
 
-logger = logging.getLogger("zuper.session")
+logger = logging.getLogger("aleph.session")
 
 
 # ---------------------------------------------------------------------------

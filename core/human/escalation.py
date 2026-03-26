@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Escalation Module
+Aleph Framework — Escalation Module
 ============================================
 Handles the complete escalation lifecycle:
 
@@ -19,7 +19,7 @@ from typing import Any
 
 from core.session.redis_escalation import EscalationData
 
-logger = logging.getLogger("zuper.human")
+logger = logging.getLogger("aleph.human")
 
 
 # ---------------------------------------------------------------------------

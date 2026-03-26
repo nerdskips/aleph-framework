@@ -1,1 +1,1 @@
-"""Zuper Agent Framework — Core."""
+"""Aleph Framework — Core."""

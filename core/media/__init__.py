@@ -1,1 +1,1 @@
-"""Zuper Agent Framework — core/media/"""
+"""Aleph Framework — core/media/"""

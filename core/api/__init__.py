@@ -1,1 +1,1 @@
-"""Zuper Agent Framework — FastAPI webhooks."""
+"""Aleph Framework — FastAPI webhooks."""

@@ -1,1 +1,1 @@
-"""Zuper Agent Framework — core/queue/"""
+"""Aleph Framework — core/queue/"""

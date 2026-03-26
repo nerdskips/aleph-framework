@@ -1,4 +1,4 @@
-"""Zuper Agent Framework — Deterministic guardrails (input + output)."""
+"""Aleph Framework — Deterministic guardrails (input + output)."""
 
 from core.guardrails.input import classify_input, ClassificationResult
 from core.guardrails.output import check_output, OutputGuardrailResult

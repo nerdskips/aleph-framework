@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Z-API Message Sender
+Aleph Framework — Z-API Message Sender
 ===============================================
 Sends messages via Z-API with humanized delivery:
   - Splits response by paragraph into multiple messages
@@ -24,7 +24,7 @@ import httpx
 
 from core.registry.schema import FrameworkConfig
 
-logger = logging.getLogger("zuper.messaging")
+logger = logging.getLogger("aleph.messaging")
 
 
 class ZAPISender:

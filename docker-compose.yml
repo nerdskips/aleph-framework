@@ -1,5 +1,5 @@
 # =============================================================================
-# Zuper Agent Framework — Docker Compose
+# Aleph Framework — Docker Compose
 # =============================================================================
 # Cada agente = um service com seu próprio .env em clients/<agent>/.env
 #
@@ -29,7 +29,7 @@ services:
   # -----------------------------------------------------------------------
   agent-example:
     build: .
-    container_name: zuper-agent-example
+    container_name: aleph-example
     env_file: clients/example/.env
     environment:
       - CLIENT_ID=example
@@ -49,7 +49,7 @@ services:
   # -----------------------------------------------------------------------
   agent-teste-hitl:
     build: .
-    container_name: zuper-agent-teste-hitl
+    container_name: aleph-teste-hitl
     env_file: clients/teste-hitl/.env
     environment:
       - CLIENT_ID=teste-hitl
@@ -67,7 +67,7 @@ services:
   # -----------------------------------------------------------------------
   # Para adicionar mais agentes, copia um bloco acima e muda:
   #   - service name:    agent-NOME
-  #   - container_name:  zuper-agent-NOME
+  #   - container_name:  aleph-NOME
   #   - env_file:        clients/NOME/.env
   #   - CLIENT_ID:       NOME
   #   - ports:           próxima porta livre (8002:8000, 8003:8000, etc)

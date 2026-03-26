@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — Input Guardrails Engine
+Aleph Framework — Input Guardrails Engine
 =================================================
 Deterministic classification BEFORE the LLM call.
 Zero cost, zero latency — pure regex/keyword matching.
@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from core.registry.schema import GuardrailAction, GuardrailsConfig, InputPattern
 
-logger = logging.getLogger("zuper.guardrails")
+logger = logging.getLogger("aleph.guardrails")
 
 
 # ---------------------------------------------------------------------------

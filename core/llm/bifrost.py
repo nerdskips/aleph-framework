@@ -1,5 +1,5 @@
 """
-Zuper Agent Framework — LLM Client
+Aleph Framework — LLM Client
 =====================================
 Creates OpenAI-compatible model instances for the SDK Agent.
 
@@ -31,7 +31,7 @@ from agents import ModelSettings
 
 from core.registry.schema import FrameworkConfig
 
-logger = logging.getLogger("zuper.llm")
+logger = logging.getLogger("aleph.llm")
 
 
 # ---------------------------------------------------------------------------

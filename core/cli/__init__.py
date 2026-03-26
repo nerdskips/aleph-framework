@@ -1,1 +1,1 @@
-"""Zuper Agent Framework — CLI."""
+"""Aleph Framework — CLI."""
