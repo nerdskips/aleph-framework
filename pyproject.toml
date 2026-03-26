@@ -46,6 +46,10 @@ dependencies = [
 habits = [
     "asyncpg>=0.30.0",
 ]
+knowledge = [
+    "asyncpg>=0.30.0",
+    "pypdf>=5.0.0",
+]
 media = [
     "openai>=1.60.0",
     "pypdf>=5.0.0",
@@ -54,7 +58,7 @@ queue = [
     "arq>=0.26.0",
 ]
 all = [
-    "aleph[habits,media,queue]",
+    "aleph[habits,media,queue,knowledge]",
 ]
 dev = [
     "pytest>=8.0.0",
