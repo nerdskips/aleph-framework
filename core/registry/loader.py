@@ -40,19 +40,29 @@ def resolve_client_dir(client_id: str | None = None) -> Path:
     """Resolve the client directory path.
 
     Priority:
-      1. Explicit client_id argument
-      2. CLIENT_ID environment variable
+      1. AGENT_DIR environment variable (pip install / Docker mode)
+      2. Explicit client_id argument → clients/<id>/
+      3. CLIENT_ID environment variable → clients/<id>/
 
     Returns:
-        Path to the client directory (e.g. clients/example/)
+        Path to the client directory
 
     Raises:
         FileNotFoundError: if client dir doesn't exist
     """
+    # Mode 1: AGENT_DIR — used when installed via pip (Docker / standalone)
+    agent_dir = os.environ.get("AGENT_DIR")
+    if agent_dir:
+        p = Path(agent_dir)
+        if not p.is_dir():
+            raise FileNotFoundError(f"AGENT_DIR not found: {p}")
+        return p
+
+    # Mode 2: client_id → clients/<id>/ (dev mode / repo checkout)
     cid = client_id or os.environ.get("CLIENT_ID")
     if not cid:
         raise ValueError(
-            "No client specified. Pass client_id or set CLIENT_ID env var."
+            "No client specified. Set AGENT_DIR, pass client_id, or set CLIENT_ID env var."
         )
 
     client_dir = CLIENTS_DIR / cid
