@@ -695,6 +695,10 @@ async def _knowledge_clear(client_id: str, raw: dict, source: str | None):
 # chat (interactive runner)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# chat (interactive runner)
+# ---------------------------------------------------------------------------
+
 @app.command()
 def chat(
     name: str = typer.Argument(help="Agent name (directory name)"),
@@ -722,9 +726,16 @@ def chat(
         datefmt="%H:%M:%S",
     )
 
+    asyncio.run(_chat_loop(name, agent_dir))
+
+
+async def _chat_loop(name: str, agent_dir):
+    """Main chat loop — everything runs in a single event loop."""
+    from core.registry.registry import AgentRegistry
+    from core.engine.pipeline import process_message
+
     # Boot registry
     try:
-        from core.registry.registry import AgentRegistry
         registry = AgentRegistry.from_config()
         console.print(f"\n[green]✓[/green] Agent loaded: [bold]{registry.agent_name}[/bold]")
         console.print(f"  Model: {registry.config.agent.model}")
@@ -732,7 +743,7 @@ def chat(
         console.print(f"  Habits: {'ON' if registry.config.habits.enabled else 'OFF'}")
     except Exception as e:
         console.print(f"[red]✗[/red] Boot failed: {e}")
-        raise typer.Exit(1)
+        return
 
     # Init knowledge DB if enabled
     knowledge_db = None
@@ -740,7 +751,8 @@ def chat(
         try:
             from core.knowledge.database import KnowledgeDatabase
             knowledge_db = KnowledgeDatabase(registry.config.knowledge)
-            asyncio.run(_connect_knowledge(knowledge_db))
+            await knowledge_db.connect()
+            await knowledge_db.bootstrap()
             console.print(f"  [green]✓[/green] Knowledge DB connected")
         except Exception as e:
             console.print(f"  [yellow]![/yellow] Knowledge DB failed: {e}")
@@ -748,12 +760,13 @@ def chat(
     console.print(f"\n💬 Interactive mode — type 'quit' to exit")
     console.print("-" * 40)
 
-    from core.engine.pipeline import process_message
     history = []
 
     while True:
         try:
-            user_input = input("\n👤 You: ").strip()
+            user_input = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: input("\n👤 You: ").strip()
+            )
         except (EOFError, KeyboardInterrupt):
             console.print("\n👋 Bye!")
             break
@@ -765,9 +778,12 @@ def chat(
         if not user_input:
             continue
 
-        result = asyncio.run(_chat_message(
-            registry, user_input, history, knowledge_db,
-        ))
+        result = await process_message(
+            registry=registry,
+            user_message=user_input,
+            message_history=history,
+            knowledge_db=knowledge_db,
+        )
 
         # Show guardrail info
         if result.input_classification and result.input_classification.matched:
@@ -791,7 +807,7 @@ def chat(
 
     # Cleanup
     if knowledge_db:
-        asyncio.run(_close_knowledge(knowledge_db))
+        await knowledge_db.close()
 
 
 async def _connect_knowledge(db):
