@@ -11,6 +11,7 @@ before generating embeddings (Anthropic contextual retrieval pattern).
 
 from __future__ import annotations
 
+import json
 import asyncio
 import logging
 import re
@@ -259,7 +260,7 @@ async def ingest_document(
                     chunk.source,
                     chunk.chunk_index,
                     str(embedding),
-                    chunk.metadata,
+                     json.dumps(chunk.metadata),
                 )
 
             stored += 1
