@@ -120,7 +120,9 @@ async def search_and_format(
         if match.context:
             source_info = f"{match.context} — {source_info}"
 
-        chunks.append(f"[{i}] ({source_info})\n{match.content}")
+        # Sanitize content to avoid encoding issues
+        clean_content = match.content.encode('utf-8', errors='replace').decode('utf-8')
+        chunks.append(f"[{i}] ({source_info})\n{clean_content}")
 
     result = (
         "[BASE DE CONHECIMENTO]\n"

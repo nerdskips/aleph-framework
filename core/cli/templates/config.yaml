@@ -39,24 +39,34 @@ human:
 # -----------------------------------------------------------------------------
 # Guardrails — Input classification (pre-LLM, zero cost)
 # -----------------------------------------------------------------------------
-# guardrails:
-#   input_patterns:
-#     - name: "cancelamento"
-#       keywords: ["cancelar", "quero cancelar", "cancela"]
-#       action: "escalate"
-#       priority: 20
-#
-#     - name: "fora_de_escopo"
-#       keywords: ["futebol", "previsao do tempo"]
-#       action: "redirect"
-#       redirect_message: "Só consigo ajudar com assuntos do negócio!"
-#       priority: 10
-#
-#   output_rules:
-#     - name: "price_leak"
-#       enabled: true
-#     - name: "fabrication"
-#       enabled: true
+# -----------------------------------------------------------------------------
+# Guardrails — Input classification + Output validation
+# -----------------------------------------------------------------------------
+guardrails:
+  # Built-in output guards (DEFAULT ON — disable if your agent needs to)
+  enable_fabrication_guard: true        # blocks fabricated addresses/data
+  enable_price_leak_guard: true         # blocks loose prices — set false if agent should talk prices
+  enable_ghost_escalation_guard: true   # blocks fake "vou verificar" without real escalation
+
+  # Custom input patterns (pre-LLM, zero cost)
+  # input_patterns:
+  #   - name: "cancelamento"
+  #     keywords: ["cancelar", "quero cancelar", "cancela"]
+  #     action: "escalate"
+  #     priority: 20
+  #
+  #   - name: "fora_de_escopo"
+  #     keywords: ["futebol", "previsao do tempo"]
+  #     action: "redirect"
+  #     redirect_message: "Só consigo ajudar com assuntos do negócio!"
+  #     priority: 10
+
+  # Custom output rules (post-LLM, regex-based)
+  # output_rules:
+  #   - name: "my_custom_rule"
+  #     type: "custom_regex"
+  #     patterns: ["regex_aqui"]
+  #     safe_response: "Mensagem segura quando bloqueado"
 
 # -----------------------------------------------------------------------------
 # Messaging — WhatsApp behavior
