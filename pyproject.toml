@@ -30,7 +30,6 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
     "pydantic>=2.10.0",
-    "pydantic-settings>=2.7.0",
     "pyyaml>=6.0",
     "python-dotenv>=1.0.0",
     # CLI
@@ -60,7 +59,7 @@ queue = [
     "arq>=0.26.0",
 ]
 all = [
-    "aleph[habits,media,queue,knowledge]",
+    "aleph-agent[habits,media,queue,knowledge]",
 ]
 dev = [
     "pytest>=8.0.0",
@@ -73,16 +72,15 @@ aleph-agent = "core.cli.main:app"
 aleph-mcp = "core.mcp.server:main"
 
 [project.urls]
-Homepage = "https://github.com/aleph-framework/aleph"
-Documentation = "https://docs.aleph.dev/agent"
-Repository = "https://github.com/aleph-framework/aleph"
+Homepage = "https://github.com/nerdskips/aleph-framework"
+Repository = "https://github.com/nerdskips/aleph-framework"
 
 [tool.setuptools.packages.find]
 include = ["core*", "cli*"]
 exclude = ["tests*", "clients*", "docker*", "scripts*"]
 
 [tool.setuptools.package-data]
-cli = ["templates/**/*"]
+"core.cli" = ["templates/**/*"]
 
 [tool.ruff]
 target-version = "py311"

@@ -11,16 +11,14 @@ Config-driven framework for WhatsApp AI agents. Define your agent entirely in YA
 From zero to a running agent:
 
 ```bash
-# 1. Clone and install
-git clone https://github.com/nerdskips/aleph-framework
-cd aleph-framework
-pip install -e ".[dev,all]"
+# 1. Install (no clone needed)
+pip install "aleph-agent[all] @ git+https://github.com/nerdskips/aleph-framework"
 
 # 2. Register the MCP server in Claude Code (once per machine)
 claude mcp add --scope user aleph aleph-mcp
 
-# 3. Go into the agents folder
-cd clients/
+# 3. Create a folder for your agents and go in
+mkdir my-agents && cd my-agents
 
 # 4. Create your agent
 aleph-agent init my-agent
@@ -115,23 +113,19 @@ The framework reads `config.yaml`, builds the agent, wires guardrails, flows, to
 **Requirements:** Python 3.11+ and Redis.
 
 ```bash
-# Clone
-git clone https://github.com/aleph-framework/aleph
-cd aleph
-
-# Install (development mode — recommended)
-pip install -e ".[dev,all]"
+# Install directly from GitHub — no clone needed
+pip install "aleph-agent[all] @ git+https://github.com/nerdskips/aleph-framework"
 
 # Verify CLI is available
 aleph-agent --help
 ```
 
-For production or Docker use:
+For contributors working on the framework itself:
 
 ```bash
-pip install aleph-agent
-# or with specific extras:
-pip install "aleph-agent[habits,knowledge]"
+git clone https://github.com/nerdskips/aleph-framework
+cd aleph-framework
+pip install -e ".[dev,all]"
 ```
 
 **Optional extras:**
