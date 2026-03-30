@@ -50,6 +50,7 @@ _sender: ZAPISender | None = None
 _habits_db = None  # HabitsDatabase | None — initialized only if habits.enabled
 _buffer_timers: dict[str, asyncio.Task] = {}
 _knowledge_db = None
+_flow_engine = None  # FlowEngine | None — initialized only if flows.enabled
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +60,7 @@ _knowledge_db = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Boot the framework on startup, cleanup on shutdown."""
-    global _registry, _redis, _sender, _habits_db, _knowledge_db
+    global _registry, _redis, _sender, _habits_db, _knowledge_db, _flow_engine
 
     client_id = os.environ.get("CLIENT_ID")
     if not client_id:
@@ -110,12 +111,19 @@ async def lifespan(app: FastAPI):
             )
             _knowledge_db = None
 
+    # Init FlowEngine (only if flows.enabled)
+    if _registry.config.flows.enabled:
+        from core.flows import FlowEngine
+        _flow_engine = FlowEngine(_registry.config.flows)
+        logger.info("FlowEngine initialized with %d flow(s)", len(_registry.config.flows.flows))
+
     logger.info(
-        "🚀 %s online — port %d — model %s — habits %s",
+        "🚀 %s online — port %d — model %s — habits %s — flows %s",
         _registry.agent_name,
         _registry.config.api.port,
         _registry.config.agent.model,
         "ON" if _habits_db else "OFF",
+        "ON" if _flow_engine else "OFF",
     )
 
     yield
@@ -257,6 +265,7 @@ async def _process_after_buffer(phone: str):
                 sender=_sender,
                 habits_db=_habits_db,
                 knowledge_db=_knowledge_db,
+                flow_engine=_flow_engine,
             )
 
             logger.info(

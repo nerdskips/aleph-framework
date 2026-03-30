@@ -20,12 +20,11 @@ import json
 import logging
 import os
 import time
-from typing import Any
 
 import redis.asyncio as aioredis
-from core.session.redis_escalation import EscalationData
 
 from core.registry.schema import FrameworkConfig
+from core.session.redis_escalation import EscalationData
 
 logger = logging.getLogger("aleph.session")
 
@@ -230,7 +229,7 @@ class RedisSession:
         """Resolve LID to phone number."""
         key = self._key("lid", lid)
         return await self.client.get(key)
-    
+
     # -------------------------------------------------------------------
     # Escalation — pause + resume flow
     # -------------------------------------------------------------------
@@ -285,3 +284,35 @@ class RedisSession:
         """Resolve notification messageId to client phone."""
         key = self._key("esc_msg", notification_message_id)
         return await self.client.get(key)
+
+    # -------------------------------------------------------------------
+    # Flow state — declarative state machine (Phase 8)
+    # -------------------------------------------------------------------
+
+    async def get_flow_state(self, phone: str):
+        """Load active flow state for a phone number.
+        Returns FlowState or None if no flow is active or TTL expired."""
+        from core.flows.state import FlowState
+
+        key = self._key("flow", phone)
+        raw = await self.client.get(key)
+        if not raw:
+            return None
+        try:
+            return FlowState.from_json(raw)
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.error("Failed to parse flow state for %s: %s", phone, e)
+            return None
+
+    async def set_flow_state(self, phone: str, state, ttl: int) -> None:
+        """Persist flow state for a phone number with TTL."""
+        key = self._key("flow", phone)
+        await self.client.set(key, state.to_json(), ex=ttl)
+        logger.debug("Flow state saved for %s (flow=%s step=%s TTL=%ds)",
+                     phone, state.flow_id, state.step_id, ttl)
+
+    async def clear_flow_state(self, phone: str) -> None:
+        """Delete flow state when a flow completes or is abandoned."""
+        key = self._key("flow", phone)
+        await self.client.delete(key)
+        logger.debug("Flow state cleared for %s", phone)

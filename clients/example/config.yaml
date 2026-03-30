@@ -59,6 +59,51 @@ human:
 #     - delay_minutes: 30
 #       message: "Ainda estou por aqui se precisar!"
 
+# --- Flows / State Machine (DEFAULT OFF) -------------------------------------
+# flows:
+#   enabled: true
+#   default_state_ttl: 1800         # 30min — inactivity clears the flow state
+#   flows:
+#     - id: onboarding
+#       trigger_keywords: ["quero contratar", "começar"]
+#       on_interrupt: pause          # hold | pause (default)
+#                                    # hold: ignore off-topic, re-ask step
+#                                    # pause: LLM answers off-topic, then re-asks step
+#       steps:
+#         - id: ask_name
+#           message: "Qual é o seu nome?"
+#           collect_as: name
+#           next: ask_email
+#         - id: ask_email
+#           message: "Qual é o seu email?"
+#           collect_as: email
+#           on_complete:
+#             action: continue_to_llm    # inject collected data, hand off to LLM
+#             inject_summary: true
+#
+#     - id: checkout
+#       trigger_keywords: ["finalizar pedido"]
+#       state_ttl: 600               # shorter TTL for checkout (10min)
+#       steps:
+#         - id: confirm_address
+#           message: "Confirme seu endereço de entrega:"
+#           collect_as: address
+#           on_complete:
+#             action: webhook
+#             url: "http://n8n:5678/webhook/checkout"
+#             method: POST
+#             then: send_message      # after webhook returns, send the message below
+#             message: "Pedido registrado! Em breve você receberá uma confirmação."
+#
+#     - id: qualification
+#       trigger_keywords: ["tenho interesse"]
+#       steps:
+#         - id: ask_budget
+#           message: "Qual é o seu orçamento?"
+#           collect_as: budget
+#           on_complete:
+#             action: escalate        # hand off to human with collected data
+
 # --- Media (DEFAULT OFF) ------------------------------------------------------
 # media:
 #   enabled: true

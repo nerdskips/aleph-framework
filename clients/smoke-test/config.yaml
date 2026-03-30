@@ -1,0 +1,156 @@
+# =============================================================================
+# Zuper / Aleph Framework — smoke-test agent
+# =============================================================================
+# Purpose: exercise every framework feature in a single agent.
+# Used to catch regressions and validate new phases.
+#
+# Features active here:
+#   ✅ Guardrails (input: redirect + inject; output: fabrication)
+#   ✅ Flows (state machine: onboarding flow, 2 steps)
+#   ✅ Code tool (smoke_tools.py)
+#   ✅ Webhook tool (ViaCEP public API — no credentials needed)
+#   ✅ Data files (products.json injected into system prompt)
+#   ✅ Follow-up steps (schema only — not triggered in CLI)
+#   ✅ Human HITL disabled (no Z-API needed for smoke test)
+#   ✅ Habits: disabled (no DB needed for CLI smoke test)
+#   ✅ Knowledge: disabled (no DB needed for CLI smoke test)
+# =============================================================================
+
+client_id: "smoke-test"
+
+# --- Agent identity ----------------------------------------------------------
+agent:
+  name: "Smoke Bot"
+  description: "Framework smoke-test agent — exercises all features"
+  model: "openai/gpt-4.1-mini"
+  fallback_model: "google/gemini-2.5-flash"
+  temperature: 0.4
+  max_tokens: 512
+  system_prompt_file: "prompts/system.md"
+
+# --- API server --------------------------------------------------------------
+api:
+  port: 8099
+
+# --- Human HITL (disabled — no Z-API for smoke test) ------------------------
+human:
+  enabled: false
+
+# --- Guardrails — deterministic pre-LLM layer --------------------------------
+guardrails:
+  input_patterns:
+
+    # 1. REDIRECT — keywords that get a static reply, no LLM cost
+    - name: "saudacao"
+      keywords: ["oi", "olá", "ola", "bom dia", "boa tarde", "boa noite", "hey"]
+      action: redirect
+      redirect_message: "Olá! Sou o Smoke Bot. Como posso ajudar? (guardrail: redirect ✅)"
+      priority: 10
+
+    # 2. INJECT — adds hidden instruction to LLM input
+    - name: "preco_inject"
+      keywords: ["preço", "valor", "quanto custa", "preco"]
+      action: inject
+      inject_instruction: "O usuário perguntou sobre preço. Use apenas os dados do arquivo products.json injetado no prompt."
+      priority: 5
+
+    # 3. BLOCK — blocks sensitive topic
+    - name: "bloqueio_concorrente"
+      keywords: ["concorrente", "outra marca"]
+      action: block
+      priority: 8
+
+  # Output guardrails (fabrication + ghost escalation active by default)
+  enable_fabrication_guard: true
+  enable_ghost_escalation_guard: true
+
+# --- Flows — state machine (Phase 8) ----------------------------------------
+flows:
+  enabled: true
+  default_state_ttl: 600            # 10min for smoke test
+  flows:
+
+    # Onboarding flow: collect name + interest, then continue to LLM
+    - id: onboarding
+      trigger_keywords: ["começar", "comecar", "quero começar", "onboarding"]
+      on_interrupt: pause            # LLM answers off-topic, then re-asks step
+      steps:
+        - id: ask_name
+          message: "Ótimo! Para começarmos, qual é o seu nome? (flow step 1/2 ✅)"
+          collect_as: nome
+          next: ask_interest
+        - id: ask_interest
+          message: "Perfeito, {nome}! Qual produto te interessa? (flow step 2/2 ✅)"
+          collect_as: interesse
+          on_complete:
+            action: continue_to_llm
+            inject_summary: true     # injects collected data into LLM context
+
+    # Quick flow: single step, webhook on_complete
+    - id: cep_lookup
+      trigger_keywords: ["buscar cep", "consultar cep"]
+      on_interrupt: hold
+      steps:
+        - id: ask_cep
+          message: "Qual CEP você quer consultar? (flow step 1/1 ✅)"
+          collect_as: cep
+          on_complete:
+            action: send_message
+            message: "CEP registrado! Use a ferramenta 'buscar_cep' para consultar. (flow complete ✅)"
+
+# --- Tools -------------------------------------------------------------------
+tools:
+
+  # Code tool — Python function from tools/smoke_tools.py
+  - name: "status_framework"
+    type: code
+    module: "smoke_tools"
+    description: "Retorna o status atual do framework e das features ativas"
+
+  # Webhook tool — ViaCEP (public API, no auth needed)
+  - name: "buscar_cep"
+    type: webhook
+    description: "Consulta endereço completo a partir de um CEP brasileiro"
+    webhook_url: "https://viacep.com.br/ws/{cep}/json/"
+    method: GET
+    parameters:
+      cep:
+        type: string
+        description: "CEP para consultar (somente números, 8 dígitos)"
+        required: true
+
+# --- Data files (injected into system prompt) --------------------------------
+data_files:
+  - key: products
+    file: products.json
+    format: json
+
+# --- Follow-up (schema validation only — not triggered in CLI) ---------------
+follow_up:
+  enabled: true
+  steps:
+    - delay_minutes: 5
+      message: "Oi {name}! Posso te ajudar com mais alguma coisa? (follow-up step 1 ✅)"
+    - delay_minutes: 15
+      message: "Ainda estou aqui se precisar! (follow-up step 2 ✅)"
+
+# --- Habits (disabled — no DB for CLI smoke test) ----------------------------
+habits:
+  enabled: false
+
+# --- Knowledge (disabled — no DB for CLI smoke test) -------------------------
+knowledge:
+  enabled: false
+
+# --- Messaging ---------------------------------------------------------------
+messaging:
+  disclaimer:
+    text: "Smoke Bot — Aleph Framework test agent"
+  delay_min_ms: 0
+  delay_max_ms: 0
+
+# --- Debug -------------------------------------------------------------------
+debug:
+  logging:
+    level: INFO
+  dry_run: false

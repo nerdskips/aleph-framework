@@ -757,6 +757,13 @@ async def _chat_loop(name: str, agent_dir):
         except Exception as e:
             console.print(f"  [yellow]![/yellow] Knowledge DB failed: {e}")
 
+    # Init FlowEngine (only if flows.enabled)
+    flow_engine = None
+    if registry.config.flows.enabled:
+        from core.flows import FlowEngine
+        flow_engine = FlowEngine(registry.config.flows)
+        console.print(f"  [green]✓[/green] Flows: {len(registry.config.flows.flows)} flow(s) loaded")
+
     console.print(f"\n💬 Interactive mode — type 'quit' to exit")
     console.print("-" * 40)
 
@@ -783,6 +790,7 @@ async def _chat_loop(name: str, agent_dir):
             user_message=user_input,
             message_history=history,
             knowledge_db=knowledge_db,
+            flow_engine=flow_engine,
         )
 
         # Show guardrail info
@@ -818,13 +826,14 @@ async def _close_knowledge(db):
     await db.close()
 
 
-async def _chat_message(registry, user_input, history, knowledge_db):
+async def _chat_message(registry, user_input, history, knowledge_db, flow_engine=None):
     from core.engine.pipeline import process_message
     return await process_message(
         registry=registry,
         user_message=user_input,
         message_history=history,
         knowledge_db=knowledge_db,
+        flow_engine=flow_engine,
     )
 
 # ---------------------------------------------------------------------------

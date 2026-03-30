@@ -30,13 +30,11 @@ Debug/Observability:
 from __future__ import annotations
 
 import os
-
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
-
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -82,6 +80,21 @@ class HandoffMode(str, Enum):
     """SDK 0.12 handoff patterns."""
     PEER = "peer"        # handoff: agent transfers control to another agent
     MANAGER = "manager"  # as_tool: central agent invokes sub-agents as tools
+
+
+class OnInterruptAction(str, Enum):
+    """What to do when an off-topic message is detected mid-flow."""
+    HOLD = "hold"    # re-ask current step, ignore off-topic message, skip LLM
+    PAUSE = "pause"  # LLM answers the off-topic message, then re-asks the step
+
+
+class OnCompleteAction(str, Enum):
+    """What to do when all flow steps are answered."""
+    CONTINUE_TO_LLM = "continue_to_llm"  # inject collected data, pass to LLM
+    SEND_MESSAGE    = "send_message"      # send fixed message, done
+    WEBHOOK         = "webhook"           # POST collected data to external URL
+    ESCALATE        = "escalate"          # escalate to human with collected context
+    START_FLOW      = "start_flow"        # chain into another flow
 
 
 # ---------------------------------------------------------------------------
@@ -381,6 +394,84 @@ class MessagingConfig(BaseModel):
 # DEFAULT OFF — depends on use case
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Flows — declarative state machine
+# DEFAULT OFF — enable when agent needs structured multi-step processes
+# ---------------------------------------------------------------------------
+
+class OnCompleteConfig(BaseModel):
+    """What happens when a flow finishes all its steps."""
+    action: OnCompleteAction = Field(OnCompleteAction.SEND_MESSAGE, description="Action to take on flow completion")
+    message: str = Field("", description="Static message to send (send_message / webhook then)")
+    url: str = Field("", description="Webhook URL (action=webhook)")
+    method: str = Field("POST", description="HTTP method for webhook call")
+    then: str = Field("", description="Action after webhook returns: 'send_message' (sends message field)")
+    flow_id: str = Field("", description="Flow to chain into (action=start_flow)")
+    inject_summary: bool = Field(
+        True, description="Inject collected data summary into LLM context (action=continue_to_llm)"
+    )
+
+
+class StepConfig(BaseModel):
+    """A single step in a flow. The framework sends message, collects the reply, advances."""
+    id: str = Field(..., description="Unique step identifier within the flow")
+    message: str = Field(..., description="Message sent to the user at this step")
+    collect_as: str = Field("", description="Key under which the user's reply is stored in collected data")
+    next: str = Field("", description="ID of the next step. Empty = last step, triggers on_complete")
+    on_complete: OnCompleteConfig = Field(
+        default_factory=OnCompleteConfig,
+        description="What to do when this is the last step and the user has answered",
+    )
+
+
+class FlowDefinition(BaseModel):
+    """A complete multi-step flow definition."""
+    id: str = Field(..., description="Unique flow identifier (e.g. 'onboarding', 'checkout')")
+    trigger_keywords: list[str] = Field(default_factory=list, description="Keywords that start this flow")
+    trigger_regex: list[str] = Field(default_factory=list, description="Regex patterns that start this flow")
+    steps: list[StepConfig] = Field(default_factory=list, description="Ordered list of steps")
+    on_interrupt: OnInterruptAction = Field(
+        OnInterruptAction.PAUSE,
+        description="Behavior when an off-topic message is detected mid-flow",
+    )
+    state_ttl: int = Field(
+        0, ge=0,
+        description="Flow state TTL in seconds. 0 = use FlowsConfig.default_state_ttl",
+    )
+
+    @field_validator("trigger_regex", mode="before")
+    @classmethod
+    def validate_trigger_regex(cls, v: list[str]) -> list[str]:
+        import re
+        for pattern in v:
+            try:
+                re.compile(pattern)
+            except re.error as e:
+                raise ValueError(f"Invalid trigger regex '{pattern}': {e}")
+        return v
+
+
+class FlowsConfig(BaseModel):
+    """Declarative multi-step conversation flows (state machine).
+    DEFAULT OFF — enable when the agent needs to guide users through structured processes.
+
+    State is stored in Redis at aleph:{client_id}:flow:{phone}.
+    Each flow is triggered by keywords/regex and advances step-by-step,
+    collecting user replies. On completion, configurable on_complete action runs.
+
+    Off-topic detection: a message that matches ANOTHER flow's trigger keywords/regex.
+    on_interrupt controls what happens: hold (re-ask) or pause (LLM answers, then re-ask).
+    """
+    enabled: bool = Field(False)
+    default_state_ttl: int = Field(1800, ge=60, description="Default flow state TTL in seconds (30min)")
+    flows: list[FlowDefinition] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Follow-up — proactive re-engagement
+# DEFAULT OFF — depends on use case
+# ---------------------------------------------------------------------------
+
 class FollowUpStep(BaseModel):
     """One step in the follow-up sequence."""
     delay_minutes: int = Field(..., ge=1)
@@ -573,7 +664,7 @@ class FrameworkConfig(BaseModel):
     """
     # Knowledge reference for RAG — optional, enables knowledge base features
     knowledge: KnowledgeConfig = Field(default_factory=KnowledgeConfig)
-    
+
     # Identity (required)
     client_id: str = Field(..., description="Unique client identifier (e.g. 'lecrocant', 'example')")
     agent: AgentConfig
@@ -601,6 +692,9 @@ class FrameworkConfig(BaseModel):
 
     # Follow-up proativo (DEFAULT OFF)
     follow_up: FollowUpConfig = Field(default_factory=FollowUpConfig)
+
+    # Flows — declarative state machine (DEFAULT OFF)
+    flows: FlowsConfig = Field(default_factory=FlowsConfig)
 
     # Media processing (DEFAULT OFF)
     media: MediaConfig = Field(default_factory=MediaConfig)
