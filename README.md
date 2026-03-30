@@ -6,6 +6,58 @@ Config-driven framework for WhatsApp AI agents. Define your agent entirely in YA
 
 ---
 
+## Fast use
+
+From zero to a running agent:
+
+```bash
+# 1. Clone and install
+git clone https://github.com/nerdskips/aleph-framework
+cd aleph-framework
+pip install -e ".[dev,all]"
+
+# 2. Register the MCP server in Claude Code (once per machine)
+claude mcp add --scope user aleph aleph-mcp
+
+# 3. Go into the agents folder
+cd clients/
+
+# 4. Create your agent
+aleph-agent init my-agent
+
+# 5. Fill in credentials
+#    Open my-agent/.env and set:
+#      CLIENT_ID=my-agent
+#      REDIS_URL=redis://...
+#      OPENAI_API_KEY=sk-...  (or GEMINI_API_KEY, BIFROST_URL, etc.)
+
+# 6. Write your agent's personality
+#    Edit my-agent/prompts/system.md
+
+# 7. Validate everything
+aleph-agent test my-agent
+
+# 8. Chat locally — no WhatsApp needed
+aleph-agent chat my-agent
+
+# 9. Deploy to Docker
+aleph-agent start my-agent
+```
+
+**Useful after deploy:**
+```bash
+docker logs -f aleph-my-agent       # follow logs
+curl http://localhost:8000/health    # health check
+aleph-agent stop my-agent           # stop container
+```
+
+**With Claude Code (after step 2, no terminal needed):**
+> "Create an agent for my bakery that answers product questions and escalates complaints"
+
+Claude calls the MCP tools, creates and configures the agent, and tests it — you just review.
+
+---
+
 ## Table of Contents
 
 - [How it works](#how-it-works)

@@ -1,42 +1,153 @@
-# Sub-agents para o projeto Aleph Framework
+# AGENTS.md — Claude Code Context for Aleph Framework
 
-## architect
-**Papel:** Decisões de arquitetura e design de novas features.
-**Quando usar:** Antes de implementar qualquer feature nova. Analisa impacto, define interfaces, propõe schema Pydantic e estrutura de arquivos.
-**Instruções:**
-- Sempre considere as 3 camadas (agent, registry, core)
-- Features novas são DEFAULT OFF
-- Nunca quebre compatibilidade do YAML existente
-- Proponha schema Pydantic antes de codar
-- use context7 pra consultar docs de Pydantic, FastAPI, asyncpg
+This file tells Claude Code everything it needs to work effectively in this repo.
+Read this before touching any file.
 
-## implementer
-**Papel:** Implementação de código Python.
-**Quando usar:** Após architect definir a estrutura. Implementa módulos, patches, e testes.
-**Instruções:**
-- Siga as convenções do CLAUDE.md rigorosamente
-- `from __future__ import annotations` sempre primeiro
-- Imports opcionais são lazy (dentro de funções)
-- Todo I/O é async
-- Loggers: `logging.getLogger("aleph.modulo")`
-- use context7 pra consultar docs de OpenAI Agents SDK, asyncpg, Redis
+---
 
-## reviewer
-**Papel:** Code review e validação de qualidade.
-**Quando usar:** Após implementação, antes de merge.
-**Instruções:**
-- Checar: imports circulares, hardcodes, prints, error handling silencioso
-- Validar que schema Pydantic tem Field() com description
-- Confirmar que feature é DEFAULT OFF
-- Verificar que core/ não tem lógica específica de cliente
-- Rodar testes: pytest tests/
+## What this repo is
 
-## tester
-**Papel:** Criar e rodar testes.
-**Quando usar:** Após implementação de features novas.
-**Instruções:**
-- Testes unitários com pytest + pytest-asyncio
-- Testes no schema: validação de config YAML
-- Testes de search: mock de embedding + query
-- Testes de pipeline: mock de Redis + LLM
-- Nunca depender de serviços externos nos unit tests (mock tudo)
+A config-driven WhatsApp AI agent framework. Each agent is a folder under `clients/` containing
+a YAML config and a system prompt. Zero changes to `core/` are ever needed per client.
+
+The installed CLI command is `aleph-agent`. The MCP server command is `aleph-mcp`.
+
+---
+
+## Repository layout
+
+```
+core/          Framework internals — never modified for individual agents
+clients/       One folder per agent — this is where all work happens
+  example/     Annotated reference agent — read this before creating a new one
+  smoke-test/  Full-feature test agent — use to verify framework behavior
+tests/         Pytest tests — run before any commit
+```
+
+---
+
+## Non-negotiable rules
+
+- `from __future__ import annotations` must be the **first line** of every Python file
+- Never modify `core/` for client-specific logic — use YAML and `clients/<name>/`
+- All new features must be **DEFAULT OFF** in the Pydantic schema (`enabled: bool = False`)
+- Redis keys always use prefix `aleph:{client_id}:` — never bare keys
+- No `print()` in production code — use `logger = logging.getLogger("aleph.modulename")`
+- All I/O is async — Redis, Postgres, HTTP, LLM calls
+- Optional dependencies (`asyncpg`, `pypdf`) must be lazy-loaded (imported inside functions)
+
+---
+
+## The MCP tools available in this session
+
+The `aleph` MCP server is registered. Use these tools instead of editing files manually:
+
+| Tool | When to use |
+|---|---|
+| `list_agents` | Start here — see what exists |
+| `create_agent(name)` | Scaffold a new agent |
+| `validate_agent(name)` | After any config change |
+| `get_config(name)` | Before editing config |
+| `update_config(name, content)` | Write config.yaml (validates before saving) |
+| `get_system_prompt(name)` | Before editing the prompt |
+| `update_system_prompt(name, content)` | Write prompts/system.md |
+| `chat_message(name, message)` | Test agent behavior without WhatsApp |
+
+---
+
+## Workflow for creating a new agent
+
+```
+1. create_agent("name")                    — scaffold files
+2. update_system_prompt("name", "...")     — write personality
+3. update_config("name", "...")            — add guardrails / tools / flows
+4. validate_agent("name")                  — confirm PASSED
+5. chat_message("name", "test message")    — verify behavior
+```
+
+Never skip step 4. Never deploy without step 5.
+
+---
+
+## Workflow for modifying an existing agent
+
+```
+1. get_config("name")         — read current state before writing
+2. update_config(...)         — make targeted changes
+3. validate_agent("name")     — confirm still PASSED
+4. chat_message(...)          — regression test the change
+```
+
+---
+
+## Environment variables every agent needs
+
+Set in `clients/<name>/.env` — never committed to git:
+
+```bash
+CLIENT_ID=<agent-name>           # matches the folder name and client_id in config.yaml
+REDIS_URL=redis://...            # required for flows and session state
+OPENAI_API_KEY=sk-...            # or GEMINI_API_KEY / BIFROST_URL
+ZAPI_INSTANCE=...                # WhatsApp gateway (production only)
+ZAPI_TOKEN=...
+ZAPI_CLIENT_TOKEN=...
+```
+
+---
+
+## Running tests
+
+```bash
+PYTHONPATH=/root/zuper-framework .venv/bin/pytest tests/ -q
+```
+
+Expected: all pass except 2 pre-existing failures in `test_schema.py` (known issue, unrelated
+to agent work).
+
+---
+
+## Schema conventions
+
+When adding a new config section to `core/registry/schema.py`:
+
+```python
+class MyFeatureConfig(BaseModel):
+    enabled: bool = Field(False, description="DEFAULT OFF — enable in YAML")
+    # all other fields have defaults
+```
+
+Add to `FrameworkConfig` as:
+```python
+my_feature: MyFeatureConfig = Field(default_factory=MyFeatureConfig)
+```
+
+See `core/registry/schema.py` for the full list of existing sections.
+
+---
+
+## Key modules
+
+| Path | Purpose |
+|---|---|
+| `core/registry/schema.py` | All Pydantic config models — source of truth |
+| `core/engine/pipeline.py` | Message processing pipeline — 9 steps |
+| `core/flows/engine.py` | State machine for multi-step flows |
+| `core/mcp/server.py` | MCP server — all 8 tools in one file |
+| `core/cli/main.py` | CLI commands (aleph-agent) |
+| `clients/example/config.yaml` | Fully-annotated reference config |
+
+---
+
+## Deployment
+
+Each agent deploys as its own Docker container:
+
+```bash
+cd clients/
+aleph-agent start <name>         # builds image, starts container
+aleph-agent stop <name>          # stops and removes container
+docker logs -f aleph-<name>      # follow logs
+curl http://localhost:<port>/health
+```
+
+The Dockerfile is generated by `aleph-agent init` and rarely needs editing.
