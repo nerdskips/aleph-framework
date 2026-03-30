@@ -42,7 +42,34 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
 def _agent_dir(name: str) -> Path:
-    """Resolve agent directory relative to cwd."""
+    """Resolve agent directory.
+
+    Search order:
+    1. <cwd>/<name>              — running from inside clients/
+    2. <cwd>/clients/<name>      — running from project root
+    3. Walk up to find clients/  — running from any subdirectory
+    """
+    # 1. Direct: running from inside clients/
+    direct = Path.cwd() / name
+    if direct.is_dir():
+        return direct
+
+    # 2. Project root: clients/ sibling of cwd
+    via_clients = Path.cwd() / "clients" / name
+    if via_clients.is_dir():
+        return via_clients
+
+    # 3. Walk up looking for a clients/ directory that contains this agent
+    current = Path.cwd()
+    for _ in range(6):  # max 6 levels up — avoid infinite loops on weird mounts
+        candidate = current / "clients" / name
+        if candidate.is_dir():
+            return candidate
+        if current.parent == current:
+            break
+        current = current.parent
+
+    # Fallback: original behaviour (will produce a clear "not found" error downstream)
     return Path.cwd() / name
 
 
@@ -745,6 +772,25 @@ async def _chat_loop(name: str, agent_dir):
         console.print(f"[red]✗[/red] Boot failed: {e}")
         return
 
+    # Init Redis (required for flows, habits, anti-spam)
+    redis_session = None
+    try:
+        from core.session.redis import RedisSession
+        redis_session = RedisSession(registry.config)
+        await redis_session.connect()
+        console.print(f"  [green]✓[/green] Redis connected")
+    except ValueError:
+        console.print(
+            "  [yellow]![/yellow] Redis not configured — "
+            "set [cyan]REDIS_URL[/cyan] in your .env to enable flows and session state"
+        )
+    except Exception as e:
+        console.print(
+            f"  [yellow]![/yellow] Redis unreachable ({_redis_hint(e)}) — "
+            "flows and session state disabled"
+        )
+        redis_session = None
+
     # Init knowledge DB if enabled
     knowledge_db = None
     if registry.config.knowledge.enabled:
@@ -760,9 +806,15 @@ async def _chat_loop(name: str, agent_dir):
     # Init FlowEngine (only if flows.enabled)
     flow_engine = None
     if registry.config.flows.enabled:
-        from core.flows import FlowEngine
-        flow_engine = FlowEngine(registry.config.flows)
-        console.print(f"  [green]✓[/green] Flows: {len(registry.config.flows.flows)} flow(s) loaded")
+        if redis_session is None:
+            console.print(
+                "  [yellow]![/yellow] Flows disabled — Redis is required "
+                "(set [cyan]REDIS_URL[/cyan] in your .env)"
+            )
+        else:
+            from core.flows import FlowEngine
+            flow_engine = FlowEngine(registry.config.flows)
+            console.print(f"  [green]✓[/green] Flows: {len(registry.config.flows.flows)} flow(s) loaded")
 
     console.print(f"\n💬 Interactive mode — type 'quit' to exit")
     console.print("-" * 40)
@@ -791,6 +843,8 @@ async def _chat_loop(name: str, agent_dir):
             message_history=history,
             knowledge_db=knowledge_db,
             flow_engine=flow_engine,
+            redis_session=redis_session,
+            phone="chat-local",
         )
 
         # Show guardrail info
@@ -816,6 +870,8 @@ async def _chat_loop(name: str, agent_dir):
     # Cleanup
     if knowledge_db:
         await knowledge_db.close()
+    if redis_session:
+        await redis_session.close()
 
 
 async def _connect_knowledge(db):
@@ -826,7 +882,21 @@ async def _close_knowledge(db):
     await db.close()
 
 
-async def _chat_message(registry, user_input, history, knowledge_db, flow_engine=None):
+def _redis_hint(exc: Exception) -> str:
+    """Turn a raw Redis exception into a one-line human hint."""
+    msg = str(exc).lower()
+    if "connection refused" in msg:
+        return "connection refused — is Redis running?"
+    if "auth" in msg or "password" in msg or "noauth" in msg:
+        return "authentication failed — check the password in REDIS_URL"
+    if "timeout" in msg:
+        return "timed out — check host/port in REDIS_URL"
+    if "name or service not known" in msg or "nodename" in msg:
+        return "host not found — check the hostname in REDIS_URL"
+    return str(exc)[:80]
+
+
+async def _chat_message(registry, user_input, history, knowledge_db, flow_engine=None, redis_session=None):
     from core.engine.pipeline import process_message
     return await process_message(
         registry=registry,
@@ -834,6 +904,8 @@ async def _chat_message(registry, user_input, history, knowledge_db, flow_engine
         message_history=history,
         knowledge_db=knowledge_db,
         flow_engine=flow_engine,
+        redis_session=redis_session,
+        phone="chat-local",
     )
 
 # ---------------------------------------------------------------------------

@@ -40,6 +40,8 @@ dependencies = [
     "redis[hiredis]>=5.0.0",
     # HTTP
     "httpx>=0.28.0",
+    # MCP
+    "mcp>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -68,6 +70,7 @@ dev = [
 
 [project.scripts]
 aleph-agent = "core.cli.main:app"
+aleph-mcp = "core.mcp.server:main"
 
 [project.urls]
 Homepage = "https://github.com/aleph-framework/aleph"

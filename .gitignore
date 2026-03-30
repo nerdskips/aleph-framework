@@ -30,3 +30,16 @@ htmlcov/
 
 # Docker
 *.log
+
+# Claude Code — personal configs, not relevant to other devs
+.claude/
+CLAUDE.md
+
+# RTK (token optimization tool — personal setup)
+.rtk/
+
+# Ruff / linter cache
+.ruff_cache/
+
+# Local plans (Claude Code planning files)
+.claude/plans/

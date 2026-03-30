@@ -130,6 +130,37 @@ OPENAI_AGENTS_DISABLE_TRACING=1
 
 ---
 
+## MCP Server (Claude Code integration)
+
+Register once — available in every project on this machine:
+
+```bash
+pip install -e ".[dev,all]"
+claude mcp add --scope user aleph aleph-mcp
+```
+
+Verify:
+
+```bash
+claude mcp list
+# aleph    stdio    aleph-mcp
+```
+
+Claude Code can now call these tools directly in conversation:
+
+| Tool | What it does |
+|---|---|
+| `list_agents` | List all agents with status |
+| `create_agent(name, ...)` | Scaffold a new agent from templates |
+| `validate_agent(name)` | Run config validation, return PASSED/FAILED |
+| `get_config(name)` | Read `config.yaml` |
+| `update_config(name, content)` | Write `config.yaml` (validates before saving) |
+| `get_system_prompt(name)` | Read `prompts/system.md` |
+| `update_system_prompt(name, content)` | Write `prompts/system.md` |
+| `chat_message(name, message)` | Send one message through the full pipeline |
+
+---
+
 ## CLI commands
 
 All commands are run from the `clients/` directory (or the directory containing your agent folders).
