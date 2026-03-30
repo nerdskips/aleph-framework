@@ -38,6 +38,28 @@ tests/         Pytest tests — run before any commit
 
 ---
 
+## MCP setup (one-time, per machine)
+
+```bash
+pip install aleph-agent
+claude mcp add --scope user aleph aleph-mcp \
+  --env ALEPH_CLIENTS_DIR=/absolute/path/to/your/clients
+```
+
+`ALEPH_CLIENTS_DIR` must point to the `clients/` directory of the project you are
+working on. Without it, the MCP server cannot locate agents when installed outside
+the project tree (e.g. via `pip` or `uv tool install`).
+
+To update the path for a different project:
+
+```bash
+claude mcp remove aleph
+claude mcp add --scope user aleph aleph-mcp \
+  --env ALEPH_CLIENTS_DIR=/path/to/other/project/clients
+```
+
+---
+
 ## The MCP tools available in this session
 
 The `aleph` MCP server is registered. Use these tools instead of editing files manually:

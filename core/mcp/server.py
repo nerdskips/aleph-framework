@@ -36,12 +36,26 @@ from mcp.server.fastmcp import FastMCP
 logger = logging.getLogger("aleph.mcp")
 
 # ---------------------------------------------------------------------------
-# Paths — derived from this file's location, always correct regardless of cwd
+# Paths
 # ---------------------------------------------------------------------------
 
-FRAMEWORK_ROOT = Path(__file__).resolve().parent.parent.parent
-CLIENTS_DIR = FRAMEWORK_ROOT / "clients"
-TEMPLATES_DIR = FRAMEWORK_ROOT / "core" / "cli" / "templates"
+# TEMPLATES_DIR is always relative to this file — templates are bundled in the
+# package (core/cli/templates/) so Path(__file__) is correct even after
+# `uv tool install` or `pip install`.
+TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "cli" / "templates"
+
+
+def _get_clients_dir() -> Path:
+    """Resolve clients directory at call time (not import time).
+
+    Priority:
+    1. ALEPH_CLIENTS_DIR env var   — set via ``claude mcp add ... --env``
+    2. <cwd>/clients               — project root layout fallback
+    """
+    env_dir = os.environ.get("ALEPH_CLIENTS_DIR")
+    if env_dir:
+        return Path(env_dir)
+    return Path.cwd() / "clients"
 
 # ---------------------------------------------------------------------------
 # Server
@@ -64,7 +78,37 @@ mcp = FastMCP(
 
 
 def _agent_dir(name: str) -> Path:
-    return CLIENTS_DIR / name
+    """Resolve agent directory — mirrors the CLI walk-up algorithm.
+
+    Search order:
+    1. ALEPH_CLIENTS_DIR/<name>       — env var set at MCP registration time
+    2. <cwd>/<name>                   — running from inside clients/
+    3. <cwd>/clients/<name>           — running from project root
+    4. Walk up 6 levels looking for clients/<name>
+    5. Fallback: _get_clients_dir()/<name>  (produces a clear error downstream)
+    """
+    env_dir = os.environ.get("ALEPH_CLIENTS_DIR")
+    if env_dir:
+        return Path(env_dir) / name
+
+    direct = Path.cwd() / name
+    if direct.is_dir():
+        return direct
+
+    via_clients = Path.cwd() / "clients" / name
+    if via_clients.is_dir():
+        return via_clients
+
+    current = Path.cwd()
+    for _ in range(6):
+        candidate = current / "clients" / name
+        if candidate.is_dir():
+            return candidate
+        if current.parent == current:
+            break
+        current = current.parent
+
+    return _get_clients_dir() / name
 
 
 def _require_agent(name: str) -> Path:
@@ -102,11 +146,12 @@ def _container_running(name: str) -> bool:
 def list_agents() -> str:
     """Returns a JSON array of agent summaries."""
     try:
-        if not CLIENTS_DIR.is_dir():
+        clients_dir = _get_clients_dir()
+        if not clients_dir.is_dir():
             return json.dumps([])
 
         agents = []
-        for d in sorted(CLIENTS_DIR.iterdir()):
+        for d in sorted(clients_dir.iterdir()):
             config_path = d / "config.yaml"
             if not d.is_dir() or not config_path.is_file():
                 continue
@@ -118,6 +163,7 @@ def list_agents() -> str:
 
             agents.append({
                 "name": d.name,
+                "path": str(d),
                 "display_name": raw.get("agent", {}).get("name", d.name),
                 "model": raw.get("agent", {}).get("model", ""),
                 "flows_enabled": raw.get("flows", {}).get("enabled", False),
@@ -224,7 +270,7 @@ def validate_agent(name: str) -> str:
         config_path = agent_dir / "config.yaml"
 
         if not agent_dir.is_dir():
-            return f"FAILED\n  ✗ Agent '{name}' not found in {CLIENTS_DIR}"
+            return f"FAILED\n  ✗ Agent '{name}' not found in {_get_clients_dir()}"
 
         if not config_path.is_file():
             return f"FAILED\n  ✗ config.yaml not found in {agent_dir}"

@@ -25,9 +25,8 @@ SMOKE_TEST = "smoke-test"
 
 @pytest.fixture()
 def mock_clients_dir(tmp_path, monkeypatch):
-    """Redirect CLIENTS_DIR to a temp directory for write tests."""
-    import core.mcp.server as srv
-    monkeypatch.setattr(srv, "CLIENTS_DIR", tmp_path)
+    """Point ALEPH_CLIENTS_DIR to a temp directory for write tests."""
+    monkeypatch.setenv("ALEPH_CLIENTS_DIR", str(tmp_path))
     return tmp_path
 
 
@@ -35,16 +34,14 @@ def mock_clients_dir(tmp_path, monkeypatch):
 def smoke_agent_in_tmp(tmp_path, monkeypatch):
     """
     Copy smoke-test into tmp_path so write tests don't touch the real agent.
-    Both CLIENTS_DIR and the agent dir are in tmp_path.
+    ALEPH_CLIENTS_DIR is set to tmp_path.
     """
     import shutil
-
-    import core.mcp.server as srv
 
     real_smoke = Path(__file__).resolve().parents[2] / "clients" / "smoke-test"
     dest = tmp_path / "smoke-test"
     shutil.copytree(real_smoke, dest)
-    monkeypatch.setattr(srv, "CLIENTS_DIR", tmp_path)
+    monkeypatch.setenv("ALEPH_CLIENTS_DIR", str(tmp_path))
     return tmp_path
 
 
@@ -75,7 +72,9 @@ def test_list_agents_has_expected_fields():
     assert "model" in smoke
     assert "flows_enabled" in smoke
     assert "running" in smoke
+    assert "path" in smoke
     assert isinstance(smoke["running"], bool)
+    assert "smoke-test" in smoke["path"]
 
 
 def test_list_agents_empty_dir(mock_clients_dir):
@@ -265,3 +264,59 @@ async def test_chat_message_missing_agent():
     result = await chat_message("ghost-xyz", "hi")
     assert isinstance(result, str)
     assert result.startswith("Error")
+
+
+# ---------------------------------------------------------------------------
+# _agent_dir resolution
+# ---------------------------------------------------------------------------
+
+def test_agent_dir_env_var(tmp_path, monkeypatch):
+    """ALEPH_CLIENTS_DIR overrides all other resolution."""
+    from core.mcp.server import _agent_dir
+    monkeypatch.setenv("ALEPH_CLIENTS_DIR", str(tmp_path))
+    result = _agent_dir("mybot")
+    assert result == tmp_path / "mybot"
+
+
+def test_agent_dir_direct_cwd(tmp_path, monkeypatch):
+    """cwd/<name> is returned when the directory exists and env var is not set."""
+    from core.mcp.server import _agent_dir
+    monkeypatch.delenv("ALEPH_CLIENTS_DIR", raising=False)
+    agent_dir = tmp_path / "mybot"
+    agent_dir.mkdir()
+    monkeypatch.chdir(tmp_path)
+    result = _agent_dir("mybot")
+    assert result == agent_dir
+
+
+def test_agent_dir_via_clients_subdir(tmp_path, monkeypatch):
+    """cwd/clients/<name> is returned when cwd/<name> does not exist."""
+    from core.mcp.server import _agent_dir
+    monkeypatch.delenv("ALEPH_CLIENTS_DIR", raising=False)
+    agent_dir = tmp_path / "clients" / "mybot"
+    agent_dir.mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    result = _agent_dir("mybot")
+    assert result == agent_dir
+
+
+def test_agent_dir_walk_up(tmp_path, monkeypatch):
+    """Walk-up finds clients/<name> in a parent directory."""
+    from core.mcp.server import _agent_dir
+    monkeypatch.delenv("ALEPH_CLIENTS_DIR", raising=False)
+    agent_dir = tmp_path / "clients" / "mybot"
+    agent_dir.mkdir(parents=True)
+    subdir = tmp_path / "deep" / "sub"
+    subdir.mkdir(parents=True)
+    monkeypatch.chdir(subdir)
+    result = _agent_dir("mybot")
+    assert result == agent_dir
+
+
+def test_agent_dir_fallback(tmp_path, monkeypatch):
+    """Returns cwd/clients/<name> as fallback when nothing is found."""
+    from core.mcp.server import _agent_dir
+    monkeypatch.delenv("ALEPH_CLIENTS_DIR", raising=False)
+    monkeypatch.chdir(tmp_path)
+    result = _agent_dir("nonexistent")
+    assert result == tmp_path / "clients" / "nonexistent"

@@ -181,9 +181,14 @@ OPENAI_AGENTS_DISABLE_TRACING=1
 Register once — available in every project on this machine:
 
 ```bash
-pip install -e ".[dev,all]"
-claude mcp add --scope user aleph aleph-mcp
+pip install aleph-agent          # or: pip install -e ".[dev,all]" in dev mode
+claude mcp add --scope user aleph aleph-mcp \
+  --env ALEPH_CLIENTS_DIR=/absolute/path/to/your/clients
 ```
+
+> **Why `ALEPH_CLIENTS_DIR`?** When installed via `pip` or `uv tool install`, the
+> `aleph-mcp` binary runs from inside the package's virtual environment — it has no
+> way to know where your agents live. Set this once and every MCP tool will find them.
 
 Verify:
 

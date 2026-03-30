@@ -13,14 +13,13 @@ Commands:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
-import asyncio
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -440,29 +439,35 @@ def test(
 
 @app.command(name="list")
 def list_agents():
-    """List agent directories in the current folder."""
+    """List agent directories in the current folder or clients/ subdirectory."""
     cwd = Path.cwd()
-    agents = []
+    search_dirs = [cwd, cwd / "clients"]
 
-    for d in sorted(cwd.iterdir()):
-        if d.is_dir() and (d / "config.yaml").is_file():
-            agents.append(d.name)
+    seen: set[str] = set()
+    agents: list[tuple[str, Path]] = []
+
+    for base in search_dirs:
+        if not base.is_dir():
+            continue
+        for d in sorted(base.iterdir()):
+            if d.is_dir() and (d / "config.yaml").is_file() and d.name not in seen:
+                seen.add(d.name)
+                agents.append((d.name, d))
 
     if agents:
         console.print("[bold]Agents found:[/bold]")
-        for a in agents:
-            # Check if container is running
-            container = _container_name(a)
+        for name, agent_path in agents:
+            container = _container_name(name)
             result = subprocess.run(
                 ["docker", "inspect", "-f", "{{.State.Running}}", container],
                 capture_output=True, text=True,
             )
             running = result.stdout.strip() == "true" if result.returncode == 0 else False
             status = "[green]● running[/green]" if running else "[dim]○ stopped[/dim]"
-            console.print(f"  {status}  {a}")
+            console.print(f"  {status}  {name}  [dim]{agent_path}[/dim]")
     else:
-        console.print("[dim]No agents found in current directory.[/dim]")
-        console.print(f"  Run [cyan]aleph init <name>[/cyan] to create one.")
+        console.print("[dim]No agents found in current directory or clients/ subdirectory.[/dim]")
+        console.print("  Run [cyan]aleph init <name>[/cyan] to create one.")
 
 
 # ---------------------------------------------------------------------------
@@ -584,10 +589,10 @@ async def _knowledge_load(client_id: str, raw: dict, file: str | None, dir_path:
         console.print("[red]✗[/red] Specify --file or --dir")
         raise typer.Exit(1)
 
-    from core.registry.schema import KnowledgeConfig
     from core.knowledge.database import KnowledgeDatabase
-    from core.knowledge.loader import load_file, load_directory
     from core.knowledge.ingest import ingest_documents
+    from core.knowledge.loader import load_directory, load_file
+    from core.registry.schema import KnowledgeConfig
 
     knowledge_raw = raw.get("knowledge", {})
     config = KnowledgeConfig(**knowledge_raw)
@@ -631,8 +636,8 @@ async def _knowledge_load(client_id: str, raw: dict, file: str | None, dir_path:
 
 async def _knowledge_list(client_id: str, raw: dict):
     """List knowledge base contents."""
-    from core.registry.schema import KnowledgeConfig
     from core.knowledge.database import KnowledgeDatabase
+    from core.registry.schema import KnowledgeConfig
 
     knowledge_raw = raw.get("knowledge", {})
     config = KnowledgeConfig(**knowledge_raw)
@@ -652,7 +657,7 @@ async def _knowledge_list(client_id: str, raw: dict):
         async with db.pool.acquire() as conn:
             rows = await conn.fetch(
                 f"""
-                SELECT source, COUNT(*) as chunks, 
+                SELECT source, COUNT(*) as chunks,
                        SUM(LENGTH(content)) as total_chars,
                        MIN(created_at) as first_added
                 FROM {full_table}
@@ -683,8 +688,8 @@ async def _knowledge_list(client_id: str, raw: dict):
 
 async def _knowledge_clear(client_id: str, raw: dict, source: str | None):
     """Clear knowledge base entries."""
-    from core.registry.schema import KnowledgeConfig
     from core.knowledge.database import KnowledgeDatabase
+    from core.registry.schema import KnowledgeConfig
 
     knowledge_raw = raw.get("knowledge", {})
     config = KnowledgeConfig(**knowledge_raw)
@@ -758,8 +763,8 @@ def chat(
 
 async def _chat_loop(name: str, agent_dir):
     """Main chat loop — everything runs in a single event loop."""
-    from core.registry.registry import AgentRegistry
     from core.engine.pipeline import process_message
+    from core.registry.registry import AgentRegistry
 
     # Boot registry
     try:
@@ -778,7 +783,7 @@ async def _chat_loop(name: str, agent_dir):
         from core.session.redis import RedisSession
         redis_session = RedisSession(registry.config)
         await redis_session.connect()
-        console.print(f"  [green]✓[/green] Redis connected")
+        console.print("  [green]✓[/green] Redis connected")
     except ValueError:
         console.print(
             "  [yellow]![/yellow] Redis not configured — "
@@ -799,7 +804,7 @@ async def _chat_loop(name: str, agent_dir):
             knowledge_db = KnowledgeDatabase(registry.config.knowledge)
             await knowledge_db.connect()
             await knowledge_db.bootstrap()
-            console.print(f"  [green]✓[/green] Knowledge DB connected")
+            console.print("  [green]✓[/green] Knowledge DB connected")
         except Exception as e:
             console.print(f"  [yellow]![/yellow] Knowledge DB failed: {e}")
 
@@ -816,7 +821,7 @@ async def _chat_loop(name: str, agent_dir):
             flow_engine = FlowEngine(registry.config.flows)
             console.print(f"  [green]✓[/green] Flows: {len(registry.config.flows.flows)} flow(s) loaded")
 
-    console.print(f"\n💬 Interactive mode — type 'quit' to exit")
+    console.print("\n💬 Interactive mode — type 'quit' to exit")
     console.print("-" * 40)
 
     history = []
@@ -856,10 +861,10 @@ async def _chat_loop(name: str, agent_dir):
             console.print(f"  🚫 Output blocked: {result.output_check.rule_name}")
 
         if result.skipped_llm:
-            console.print(f"  ⚡ LLM skipped (guardrail handled)")
+            console.print("  ⚡ LLM skipped (guardrail handled)")
 
         if result.habit_used:
-            console.print(f"  📚 Habit context used")
+            console.print("  📚 Habit context used")
 
         console.print(f"\n🤖 {registry.agent_name}: {result.response}")
         console.print(f"  ⏱️ {result.elapsed_seconds:.1f}s")
