@@ -5,6 +5,8 @@ Learn from human escalation resolutions.
 Hybrid search RRF (tsvector + pgvector) on any Postgres with pgvector.
 """
 
+from __future__ import annotations
+
 from core.habits.database import HabitsDatabase
 from core.habits.search import search_habits, search_and_format, HabitMatch
 from core.habits.store import store_habit

@@ -28,7 +28,7 @@ from core.guardrails.output import OutputGuardrailResult, check_output
 from core.registry.registry import AgentRegistry
 from core.registry.schema import GuardrailAction
 
-logger = logging.getLogger("aleph.pipeline")
+logger = logging.getLogger("aleph.engine.pipeline")
 
 
 # ---------------------------------------------------------------------------

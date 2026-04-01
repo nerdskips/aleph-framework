@@ -1,5 +1,7 @@
 """Aleph Framework — Execution engine."""
 
+from __future__ import annotations
+
 from core.engine.pipeline import PipelineResult, process_message
 from core.engine.runner import build_agent, run_agent, run_agent_sync
 

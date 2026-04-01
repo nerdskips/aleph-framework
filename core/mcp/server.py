@@ -493,8 +493,8 @@ async def chat_message(name: str, message: str) -> str:
             from core.session.redis import RedisSession
             redis_session = RedisSession(registry.config)
             await redis_session.connect()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Redis unavailable in MCP context (non-fatal): %s", e)
 
         # FlowEngine — only if flows enabled and Redis available
         flow_engine = None

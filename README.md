@@ -375,6 +375,13 @@ aleph/
       zapi_send.py     # Humanized WhatsApp message sending
     llm/
       bifrost.py       # Multi-provider LLM routing + fallback
+    mcp/
+      server.py        # MCP server — 8 tools for Claude Code integration
+    queue/
+      jobs.py          # JobPayload, JobTrigger definitions
+      dispatcher.py    # Fire-and-forget LPUSH after pipeline
+      worker.py        # BRPOP consumer — executes background jobs
+    media/             # Phase 11 stub — Whisper, Vision, PDF (not yet implemented)
     api/
       webhooks.py      # FastAPI entry point
     cli/
@@ -412,6 +419,7 @@ agent:
   temperature: 0.7                         # 0.0–2.0
   max_tokens: 1024
   system_prompt_file: "prompts/system.md"  # relative to agent dir
+  parallel_tool_calls: true                # DEFAULT ON — concurrent tool execution (Phase 10)
 ```
 
 **System prompt** supports `{{key}}` placeholders for `data_files` injection. Example: if you have a `data_files` entry with `key: products`, write `{{products}}` in the prompt and the file contents are injected at boot.
@@ -896,17 +904,62 @@ media:
 
 ---
 
+### `subagents`
+
+Specialist sub-agents invoked as tools by the main agent (MANAGER pattern). **Default: OFF.** The orchestrator LLM decides when to call each sub-agent — they run their own Agent+Runner loop and return a result. Combine with `parallel_tool_calls: true` to invoke multiple sub-agents concurrently.
+
+```yaml
+subagents:
+  - name: logistics                          # internal agent name
+    tool_name: consultar_entrega             # tool name the LLM calls
+    tool_description: "Consulta prazos e status de entrega para um CEP e produto"
+    instructions: "Você é especialista em logística. Responda apenas sobre prazos e fretes."
+    model: openai/gpt-4.1-nano              # optional — inherits main model if omitted
+    max_turns: 5                             # max turns for this sub-agent's loop
+    tools:                                   # optional — same syntax as main agent tools
+      - name: frete_api
+        type: webhook
+        webhook_url: "${FRETE_API_URL}"
+        parameters:
+          cep: {type: string, description: "CEP de destino", required: true}
+
+  # Alternative: ref mode — load instructions from another agent's system prompt
+  - name: financeiro
+    tool_name: consultar_financeiro
+    tool_description: "Consulta boletos, faturas e situação financeira do cliente"
+    ref: financeiro                          # points to clients/financeiro/ directory
+```
+
+---
+
 ### `queue`
 
-Async job queue for high-availability deployments. **Default: OFF.**
+Background job dispatcher — fire-and-forget HTTP webhooks after pipeline events. **Default: OFF.** The pipeline enqueues jobs without blocking the user's reply. A separate worker process (`run_worker`) consumes the queue.
 
 ```yaml
 queue:
   enabled: true
   max_retries: 3
-  retry_delay_seconds: 5
-  job_timeout_seconds: 120
+  jobs:
+    - trigger: pipeline_complete             # fires after every successful response
+      action: webhook
+      webhook_url: "${CRM_WEBHOOK_URL}"
+      include_fields: [phone, response, elapsed_seconds]
+      timeout_seconds: 10
+
+    - trigger: flow_complete                 # fires when a specific flow finishes
+      flow_id: onboarding                    # only fires for this flow
+      action: webhook
+      webhook_url: "${ORDERS_WEBHOOK}"
+      include_fields: [phone, collected]     # collected = flow's gathered data
+
+    - trigger: escalation_start             # fires when human escalation begins
+      action: webhook
+      webhook_url: "${SLACK_WEBHOOK}"
+      include_fields: [phone, last_message]
 ```
+
+**Triggers:** `pipeline_complete` | `flow_complete` | `escalation_start`
 
 ---
 
@@ -973,3 +1026,149 @@ BIFROST_API_KEY=dummy
 REDIS_URL=redis://:password@host:6379/0
 OPENAI_AGENTS_DISABLE_TRACING=1
 ```
+
+---
+
+## Architecture standards
+
+Standards enforced across the entire `core/` codebase. Follow these when contributing new modules or extending existing ones.
+
+### Module structure
+
+Every `.py` file follows this import order:
+
+```python
+"""Aleph Framework — Module Name.
+Brief description of what this module does.
+"""
+
+from __future__ import annotations   # always — enables PEP 563 postponed annotation evaluation
+
+import os                            # stdlib
+import logging
+
+from pydantic import BaseModel       # third-party
+
+from core.registry.schema import ... # internal
+```
+
+`from __future__ import annotations` is **mandatory** in every `.py` file, including `__init__.py` and test files.
+
+### Logger naming
+
+Always `logging.getLogger("aleph.module.submodule")` — mirrors the filesystem hierarchy:
+
+```python
+logger = logging.getLogger("aleph.engine.pipeline")   # core/engine/pipeline.py ✅
+logger = logging.getLogger("aleph.queue.dispatcher")  # core/queue/dispatcher.py ✅
+logger = logging.getLogger("aleph.pipeline")          # ❌ too shallow — wrong
+```
+
+### Config passing
+
+Always pass typed config objects, never individual parameters:
+
+```python
+# ✅ full FrameworkConfig — for modules that need the whole config
+def __init__(self, config: FrameworkConfig): ...
+
+# ✅ feature-specific config — for modules that own a single feature
+def __init__(self, config: HabitsConfig): ...
+
+# ❌ individual params — breaks encapsulation
+def __init__(self, model: str, temperature: float, max_tokens: int): ...
+```
+
+Store config at `self.config` and access nested values as `config.feature.field`.
+
+### Redis key format
+
+All keys follow `aleph:{client_id}:{feature}:{detail}` — the `client_id` segment provides multi-agent isolation on a shared Redis instance:
+
+```
+aleph:{client_id}:spam:{message_id}       # anti-spam dedup
+aleph:{client_id}:lock:{phone}            # processing lock
+aleph:{client_id}:buffer:{phone}          # message consolidation buffer
+aleph:{client_id}:flow:{phone}            # flow state machine
+aleph:{client_id}:queue                   # background job queue
+aleph:{client_id}:escalation:{phone}      # escalation state
+```
+
+Lowercase, colon-separated — never dots, dashes, or underscores as separators.
+
+### Async/sync split
+
+I/O operations are `async def`; pure logic is `def`:
+
+```python
+async def connect(self) -> None: ...             # ✅ Redis/DB/HTTP — async
+def classify_input(text, config) -> ...: ...     # ✅ pure logic — sync
+
+async def bad(self):
+    time.sleep(1)       # ❌ blocks the event loop
+    requests.get(url)   # ❌ sync HTTP in async context
+```
+
+All test functions can be `async def` — `asyncio_mode = "auto"` in `pyproject.toml` handles it.
+
+### Lazy imports
+
+Use only for optional dependencies or to break circular imports:
+
+```python
+# ✅ optional dep — import inside the function
+async def ingest_pdf(path: str) -> str:
+    from pypdf import PdfReader
+    ...
+
+# ✅ feature-gated — import at the call site
+if config.queue.enabled:
+    from core.queue.dispatcher import dispatch_jobs
+
+# ❌ regular dep — move to top of file
+def process(text: str):
+    import json   # wrong: stdlib should be at top
+```
+
+### Feature flags
+
+All new features are **DEFAULT OFF** in the Pydantic schema:
+
+```python
+class NewFeatureConfig(BaseModel):
+    enabled: bool = Field(False, description="DEFAULT OFF — enable via config.yaml")
+```
+
+Never enable a feature unconditionally — always gate on `config.feature.enabled`.
+
+### Test conventions
+
+Each test file covers one module. Use `_make_` builder functions instead of shared fixtures:
+
+```python
+"""Tests: FeatureName — scenarios covered."""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock
+
+def _make_config(**overrides) -> FrameworkConfig:
+    base = {"client_id": "test", "agent": {"name": "Bot"}}
+    base.update(overrides)
+    return FrameworkConfig(**base)
+
+def _mock_redis() -> AsyncMock:
+    redis = AsyncMock()
+    redis.get = AsyncMock(return_value=None)
+    return redis
+
+def test_feature_default_off():
+    config = _make_config()
+    assert config.feature.enabled is False
+
+async def test_feature_async_operation():
+    result = await some_async_call(_mock_redis())
+    assert result.status == "ok"
+```
+
+Rules: no real Redis/DB in unit tests (`AsyncMock` only), one assertion per test, naming `test_{component}_{scenario}`.

@@ -12,6 +12,8 @@ Usage: enable via YAML (DEFAULT OFF)
         ...
 """
 
+from __future__ import annotations
+
 from core.flows.engine import FlowEngine, FlowResolution
 from core.flows.state import FlowState
 

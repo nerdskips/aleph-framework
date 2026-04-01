@@ -1,7 +1,8 @@
-""" Aleph Framework — Human-in-the-loop module
-===================================================
+"""Aleph Framework — Human-in-the-loop module.
 Escalation + takeover + resolution.
 """
+
+from __future__ import annotations
 
 from core.human.escalation import (
     escalate_to_human,
