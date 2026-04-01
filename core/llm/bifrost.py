@@ -22,12 +22,10 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
 
-from openai import AsyncOpenAI
-
-from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
 from agents import ModelSettings
+from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
+from openai import AsyncOpenAI
 
 from core.registry.schema import FrameworkConfig
 
@@ -205,4 +203,5 @@ def create_model_settings(config: FrameworkConfig) -> ModelSettings:
     return ModelSettings(
         temperature=config.agent.temperature,
         max_tokens=config.agent.max_tokens,
+        parallel_tool_calls=config.agent.parallel_tool_calls,
     )

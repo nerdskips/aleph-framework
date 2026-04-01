@@ -48,6 +48,8 @@ class PipelineResult:
         habit_used: bool = False,
         flow_active: bool = False,
         elapsed_seconds: float = 0.0,
+        user_message: str = "",
+        flow_collected: dict | None = None,
     ):
         self.response = response
         self.input_classification = input_classification
@@ -57,6 +59,8 @@ class PipelineResult:
         self.habit_used = habit_used
         self.flow_active = flow_active
         self.elapsed_seconds = elapsed_seconds
+        self.user_message = user_message
+        self.flow_collected = flow_collected or {}
 
 
 # ---------------------------------------------------------------------------
@@ -331,14 +335,31 @@ async def process_message(
         elapsed, output_result.blocked, tool_calls or "(none)", habit_used,
     )
 
-    return PipelineResult(
+    result = PipelineResult(
         response=response,
         input_classification=classification,
         output_check=output_result,
         skipped_llm=False,
         habit_used=habit_used,
         elapsed_seconds=elapsed,
+        user_message=user_message,
     )
+
+    # D3 — background jobs (fire-and-forget, never raises)
+    if config.queue.enabled:
+        try:
+            from core.queue.dispatcher import dispatch_jobs
+            await dispatch_jobs(
+                config=config,
+                result=result,
+                redis_session=redis_session,
+                phone=phone,
+                trigger="pipeline_complete",
+            )
+        except Exception as e:
+            logger.error("Queue dispatch error: %s", e)
+
+    return result
 
 
 # ---------------------------------------------------------------------------

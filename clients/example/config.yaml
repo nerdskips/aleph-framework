@@ -151,3 +151,40 @@ tools:
 
 # --- Data files (none for echo bot) -------------------------------------------
 data_files: []
+
+# --- Sub-agents (DEFAULT OFF) — specialist agents invoked as tools ------------
+# Uncomment and configure to enable MANAGER pattern (Phase 10 D2)
+# subagents:
+#   - name: logistics
+#     tool_name: consultar_entrega
+#     tool_description: "Consulta prazo e status de entrega para um CEP e produto"
+#     instructions: "Você é especialista em logística. Responda apenas sobre fretes e prazos."
+#     model: "openai/gpt-4.1-nano"   # use a cheaper model for specialist tasks
+#     max_turns: 3
+#     tools:
+#       - name: frete_api
+#         type: webhook
+#         webhook_url: "${FRETE_API_URL}"
+#         parameters:
+#           cep: {type: string, description: "CEP de destino", required: true}
+
+# --- Background job queue (DEFAULT OFF) — fire-and-forget after each message --
+# Uncomment to enable (Phase 10 D3)
+# queue:
+#   enabled: true
+#   jobs:
+#     - trigger: pipeline_complete        # fires after every agent response
+#       action: webhook
+#       webhook_url: "${CRM_WEBHOOK_URL}"
+#       include_fields: [phone, response, elapsed_seconds]
+#
+#     - trigger: flow_complete            # fires when a flow finishes
+#       flow_id: pedido
+#       action: webhook
+#       webhook_url: "${ORDERS_WEBHOOK_URL}"
+#       include_fields: [phone, collected]
+#
+#     - trigger: escalation_start         # fires when human escalation begins
+#       action: webhook
+#       webhook_url: "${SLACK_WEBHOOK_URL}"
+#       include_fields: [phone, last_message]

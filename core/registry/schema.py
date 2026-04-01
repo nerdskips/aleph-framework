@@ -150,6 +150,7 @@ class AgentConfig(BaseModel):
     temperature: float = Field(0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(1024, ge=1)
     system_prompt_file: str = Field("prompts/system.md", description="Path relative to client dir")
+    parallel_tool_calls: bool = Field(True, description="Allow LLM to call multiple tools in parallel (DEFAULT ON)")
 
 
 # ---------------------------------------------------------------------------
@@ -505,13 +506,40 @@ class MediaConfig(BaseModel):
 # DEFAULT OFF — only for high-availability setups
 # ---------------------------------------------------------------------------
 
+class QueueJobConfig(BaseModel):
+    """A single background job triggered by a pipeline event.
+
+    Triggers:
+      pipeline_complete   — fires after every successful agent response
+      flow_complete       — fires when a specific flow reaches on_complete
+      escalation_start    — fires when human escalation begins
+
+    Actions:
+      webhook             — POST job payload to external URL (CRM, Sheets, Slack, etc.)
+    """
+    trigger: str = Field(..., description="pipeline_complete | flow_complete | escalation_start")
+    flow_id: str = Field("", description="Required when trigger=flow_complete — which flow")
+    action: str = Field("webhook", description="Job action type: 'webhook'")
+    webhook_url: str = Field("", description="URL to POST the job payload to")
+    include_fields: list[str] = Field(
+        default_factory=list,
+        description="Fields from pipeline result to include: phone, response, elapsed_seconds, collected"
+    )
+    timeout_seconds: int = Field(10, ge=1, description="HTTP timeout for this job")
+
+
 class QueueConfig(BaseModel):
-    """ARQ async queue.
-    DEFAULT OFF — enable when messages can't be lost on restart."""
+    """Background job queue — fire-and-forget tasks after pipeline completion.
+    DEFAULT OFF — enable when agent needs to update external systems after every message.
+
+    Jobs run asynchronously after the response is sent. Errors are logged, never raised.
+    Redis-backed: aleph:{client_id}:queue (LPUSH/BRPOP).
+    """
     enabled: bool = Field(False)
-    max_retries: int = Field(3, ge=0)
-    retry_delay_seconds: int = Field(5, ge=1)
-    job_timeout_seconds: int = Field(120, ge=10)
+    jobs: list[QueueJobConfig] = Field(default_factory=list)
+    max_retries: int = Field(3, ge=0, description="Retry count on job failure")
+    retry_delay_seconds: int = Field(5, ge=1, description="Delay between retries")
+    job_timeout_seconds: int = Field(120, ge=10, description="Max job execution time")
 
 
 # ---------------------------------------------------------------------------
@@ -632,6 +660,32 @@ class ToolRef(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Sub-Agents — specialist agents invoked as tools (MANAGER pattern)
+# DEFAULT OFF — most agents start single-agent
+# ---------------------------------------------------------------------------
+
+class SubAgentConfig(BaseModel):
+    """A specialist sub-agent the main orchestrator can invoke as a tool.
+
+    The sub-agent runs its own full Agent+Runner loop and returns a result string.
+    The orchestrator LLM decides when to call it — and can call multiple in parallel
+    when agent.parallel_tool_calls=true.
+
+    Two definition modes:
+      inline: instructions + tools defined directly here
+      ref:    points to another agent directory (e.g. 'clients/financeiro')
+    """
+    name: str = Field(..., description="Internal name for the sub-agent")
+    tool_name: str = Field(..., description="Tool name exposed to the orchestrator LLM")
+    tool_description: str = Field(..., description="Description shown to the orchestrator LLM")
+    instructions: str = Field("", description="Sub-agent system prompt (inline mode)")
+    ref: str = Field("", description="Path to another agent dir — loads its config (ref mode)")
+    model: str = Field("", description="Model override. Empty = inherits main agent model")
+    tools: list[ToolRef] = Field(default_factory=list, description="Tools available to this sub-agent")
+    max_turns: int = Field(5, ge=1, description="Max agent turns for this sub-agent invocation")
+
+
+# ---------------------------------------------------------------------------
 # Data — business data files
 # ---------------------------------------------------------------------------
 
@@ -711,6 +765,7 @@ class FrameworkConfig(BaseModel):
     # Client-specific resources
     tools: list[ToolRef] = Field(default_factory=list)
     data_files: list[DataFileRef] = Field(default_factory=list)
+    subagents: list[SubAgentConfig] = Field(default_factory=list, description="Specialist sub-agents (DEFAULT OFF)")
 
     # Metadata
     version: str = Field("1.0.0", description="Config schema version for future migrations")

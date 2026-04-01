@@ -21,27 +21,61 @@ and produces a response string. It does NOT handle:
 
 from __future__ import annotations
 
-from datetime import datetime
-import zoneinfo
-import os
-
 import asyncio
 import logging
+import os
 import time
+import zoneinfo
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
-from agents import Agent, Runner, ModelSettings
+from agents import Agent, ModelSettings, Runner
 
-from core.registry.registry import AgentRegistry
-from core.registry.schema import FrameworkConfig
 from core.llm.bifrost import (
-    create_primary_model,
     create_fallback_model,
     create_model_settings,
+    create_primary_model,
 )
+from core.registry.registry import AgentRegistry
+from core.registry.schema import FrameworkConfig, SubAgentConfig
 
 logger = logging.getLogger("aleph.engine")
+
+
+# ---------------------------------------------------------------------------
+# Sub-agent builder (D2 — MANAGER pattern)
+# ---------------------------------------------------------------------------
+
+def _build_sub_agent(sub: SubAgentConfig, config: FrameworkConfig, model: Any) -> Agent:
+    """Build a specialist sub-agent from SubAgentConfig.
+
+    The sub-agent runs its own Agent+Runner loop when invoked as a tool.
+    Model: uses sub.model if set, otherwise inherits the main agent's model.
+    Tools: built from sub.tools list (same webhook/code factory as main agent).
+    """
+    from core.registry.tool_loader import build_tools_from_config  # lazy import
+
+    sub_model = model  # inherit by default
+    if sub.ref:
+        # Ref mode: load instructions from another agent dir's system prompt
+        ref_path = config.client_dir.parent / sub.ref if not sub.ref.startswith("/") else sub.ref  # type: ignore[arg-type]
+        try:
+            prompt_path = ref_path / "prompts" / "system.md"
+            instructions = prompt_path.read_text() if prompt_path.is_file() else sub.instructions
+        except Exception:
+            instructions = sub.instructions
+    else:
+        instructions = sub.instructions
+
+    sub_tools = build_tools_from_config(sub.tools, config.client_dir) if sub.tools else []
+
+    return Agent(
+        name=sub.name,
+        instructions=instructions,
+        model=sub_model,
+        tools=sub_tools,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -61,8 +95,11 @@ def build_agent(
         model_settings: Temperature, max_tokens, etc.
 
     Returns:
-        Configured SDK Agent ready to run
+        Configured SDK Agent ready to run. Sub-agents (if configured) are
+        added as tools via as_tool() so the orchestrator can invoke them.
     """
+    config = registry.config
+
     # Inject current datetime if TZ is set
     instructions = registry.system_prompt
     tz = os.environ.get("TZ")
@@ -74,18 +111,36 @@ def build_agent(
         except Exception:
             pass  # Invalid TZ, skip silently
 
+    # Start with main agent tools
+    all_tools = list(registry.tools)
+
+    # D2 — add sub-agents as tools (MANAGER pattern)
+    for sub in config.subagents:
+        try:
+            sub_agent = _build_sub_agent(sub, config, model)
+            sub_tool = sub_agent.as_tool(
+                tool_name=sub.tool_name,
+                tool_description=sub.tool_description,
+                max_turns=sub.max_turns,
+            )
+            all_tools.append(sub_tool)
+            logger.info("Sub-agent registered as tool: %s", sub.tool_name)
+        except Exception as e:
+            logger.warning("Failed to build sub-agent '%s': %s", sub.name, e)
+
     agent = Agent(
         name=registry.agent_name,
         instructions=instructions,
         model=model,
         model_settings=model_settings,
-        tools=registry.tools,
+        tools=all_tools,
     )
 
     logger.info(
-        "Agent built: name=%s tools=%d prompt=%d chars",
+        "Agent built: name=%s tools=%d (sub-agents=%d) prompt=%d chars",
         registry.agent_name,
-        len(registry.tools),
+        len(all_tools),
+        len(config.subagents),
         len(registry.system_prompt),
     )
 
@@ -171,6 +226,7 @@ async def run_agent(
         result = await Runner.run(
             agent,
             input=input_messages,
+            max_turns=config.sdk.handoffs.max_turns,
         )
 
         elapsed = time.monotonic() - start
@@ -207,6 +263,7 @@ async def run_agent(
         result = await Runner.run(
             agent,
             input=input_messages,
+            max_turns=config.sdk.handoffs.max_turns,
         )
 
         elapsed = time.monotonic() - start
@@ -323,7 +380,7 @@ def main():
                 print(f"  🚫 Output blocked: {result.output_check.rule_name}")
 
             if result.skipped_llm:
-                print(f"  ⚡ LLM skipped (guardrail handled)")
+                print("  ⚡ LLM skipped (guardrail handled)")
 
             print(f"\n🤖 {registry.agent_name}: {result.response}")
             print(f"  ⏱️ {result.elapsed_seconds:.1f}s")
