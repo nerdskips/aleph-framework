@@ -164,6 +164,11 @@ class SDKSessionsConfig(BaseModel):
     redis_key_prefix: str = Field("aleph:session:", description="Redis key prefix for SDK sessions")
     history_limit: int = Field(50, ge=5, description="Max messages kept in SDK session history")
     ttl: int = Field(10800, ge=60, description="Session TTL in seconds (default 3h)")
+    # Episodic memory — Phase 12
+    max_raw_turns: int = Field(8, ge=2, le=50, description="Rolling raw turn window. Compression fires when full.")
+    compression_model: str = Field("", description="Model for compression. Empty = fallback_model → agent.model")
+    gap_compression_hours: float = Field(3.0, ge=0.5, description="Hours of inactivity before deep (aggressive) compression")
+    summary_ttl_days: int = Field(30, ge=1, description="Days to retain episodic summary before expiry")
 
 
 class SDKGuardrailsConfig(BaseModel):
