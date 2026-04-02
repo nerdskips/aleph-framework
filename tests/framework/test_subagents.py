@@ -49,7 +49,7 @@ def test_parallel_tool_calls_in_model_settings():
     """create_model_settings passes parallel_tool_calls to ModelSettings."""
     from agents import ModelSettings
 
-    from core.llm.bifrost import create_model_settings
+    from core.llm.llm_router import create_model_settings
 
     config = _load_smoke_config()
 

@@ -1,5 +1,5 @@
 """
-Aleph Framework — LLM Client
+Aleph Framework — LLM Router
 =====================================
 Creates OpenAI-compatible model instances for the SDK Agent.
 
@@ -29,7 +29,7 @@ from openai import AsyncOpenAI
 
 from core.registry.schema import FrameworkConfig
 
-logger = logging.getLogger("aleph.llm")
+logger = logging.getLogger("aleph.llm.router")
 
 
 # ---------------------------------------------------------------------------

@@ -102,7 +102,7 @@ Z-API webhook
 | `core/session/redis.py` | Buffer, anti-spam, lock, conversation context |
 | `core/session/redis_escalation.py` | Escalation state |
 | `core/human/escalation.py` | Pause, notify responsible, LLM reformulation |
-| `core/llm/bifrost.py` | Multi-provider LLM routing + fallback |
+| `core/llm/llm_router.py` | Provider-agnostic LLM routing + fallback |
 | `core/messaging/zapi_filter.py` | Webhook parsing + filtering |
 | `core/messaging/zapi_send.py` | Humanized message sending |
 | `core/knowledge/` | RAG: asyncpg + pgvector, hybrid RRF search |

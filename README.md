@@ -374,7 +374,7 @@ aleph/
       zapi_filter.py   # Webhook parsing + message filtering
       zapi_send.py     # Humanized WhatsApp message sending
     llm/
-      bifrost.py       # Multi-provider LLM routing + fallback
+      llm_router.py    # Provider-agnostic LLM routing + fallback
     mcp/
       server.py        # MCP server — 8 tools for Claude Code integration
     queue/

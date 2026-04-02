@@ -32,7 +32,7 @@ from typing import Any
 
 from agents import Agent, ModelSettings, Runner
 
-from core.llm.bifrost import (
+from core.llm.llm_router import (
     create_fallback_model,
     create_model_settings,
     create_primary_model,
