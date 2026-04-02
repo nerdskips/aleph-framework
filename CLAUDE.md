@@ -155,7 +155,7 @@ See `clients/example/config.yaml` for a fully-annotated reference.
 - **Phase 8** — Flows (state machine): `core/flows/`, Redis state, YAML-driven steps
 - **Phase 9** — MCP Server: `core/mcp/server.py`, 8 tools, `aleph-mcp` CLI entry point
 - **Phase 10** — Parallel Execution + Sub-Agents (branch: `feature/phase-10-parallel-subagents`):
-  - **D1** `agent.parallel_tool_calls` → `ModelSettings(parallel_tool_calls=...)` in `core/llm/bifrost.py`
+  - **D1** `agent.parallel_tool_calls` → `ModelSettings(parallel_tool_calls=...)` in `core/llm/llm_router.py`
   - **D2** `subagents:` YAML section → `SubAgentConfig` → `agent.as_tool()` in `core/engine/runner.py`
   - **D3** `queue:` YAML section → `core/queue/` (jobs, dispatcher, worker) → fire-and-forget after pipeline
 
