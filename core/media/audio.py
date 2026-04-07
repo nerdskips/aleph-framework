@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 
 import httpx
 
@@ -28,31 +29,35 @@ async def transcribe_audio(url: str, config: MediaConfig) -> str:
     Returns:
         Transcribed text string. Empty string on failure.
     """
-    import os
-
     from openai import AsyncOpenAI  # lazy: optional dep
 
-    # Download audio
-    async with httpx.AsyncClient(timeout=30.0) as http:
-        resp = await http.get(url)
-        resp.raise_for_status()
-        audio_bytes = resp.content
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as http:
+            resp = await http.get(url)
+            resp.raise_for_status()
+            audio_bytes = resp.content
+    except Exception as e:
+        logger.error("Failed to download audio from %s: %s", url[:80], str(e)[:200])
+        return ""
 
     size_mb = len(audio_bytes) / (1024 * 1024)
     if size_mb > config.max_file_size_mb:
         logger.warning("Audio file too large (%.1fMB > %dMB limit), skipping", size_mb, config.max_file_size_mb)
         return ""
 
-    # Whisper needs a file-like with a name for format detection
     audio_file = io.BytesIO(audio_bytes)
     audio_file.name = "audio.ogg"
 
-    client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
-    result = await client.audio.transcriptions.create(
-        model=config.audio_model,
-        file=audio_file,
-        response_format="text",
-    )
-    text = result.strip() if isinstance(result, str) else getattr(result, "text", str(result)).strip()
-    logger.info("Audio transcribed: %d chars", len(text))
-    return text
+    try:
+        client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+        result = await client.audio.transcriptions.create(
+            model=config.audio_model,
+            file=audio_file,
+            response_format="text",
+        )
+        text = result.strip() if isinstance(result, str) else getattr(result, "text", str(result)).strip()
+        logger.info("Audio transcribed: %d chars", len(text))
+        return text
+    except Exception as e:
+        logger.error("Whisper transcription failed: %s", str(e)[:200])
+        return ""
