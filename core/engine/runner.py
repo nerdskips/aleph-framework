@@ -86,6 +86,7 @@ def build_agent(
     registry: AgentRegistry,
     model: Any,
     model_settings: ModelSettings,
+    extra_instructions: str = "",      # ← NEW
 ) -> Agent:
     """Build an SDK Agent from the registry.
 
@@ -110,6 +111,9 @@ def build_agent(
             instructions = f"[Data e horário atual: {timestamp} ({tz})]\n\n{instructions}"
         except Exception:
             pass  # Invalid TZ, skip silently
+
+    if extra_instructions:
+        instructions = f"{instructions}{extra_instructions}"
 
     # Start with main agent tools
     all_tools = list(registry.tools)
@@ -187,6 +191,7 @@ async def run_agent(
     registry: AgentRegistry,
     user_message: str,
     message_history: list[dict] | None = None,
+    memory_ctx=None,                  # ← NEW: MemoryContext | None
 ) -> AgentResult:
     """Run the agent with automatic fallback.
 
@@ -206,16 +211,26 @@ async def run_agent(
     config = registry.config
     model_settings = create_model_settings(config)
 
+    # Inject episodic summary into system instructions (not history)
+    extra_instructions = ""
+    if memory_ctx is not None and memory_ctx.summary:
+        extra_instructions = f"\n\n[Contexto de conversas anteriores]\n{memory_ctx.summary}"
+
+    # Use raw history from memory if available, otherwise use passed history
+    effective_history = (
+        memory_ctx.raw_history
+        if memory_ctx is not None and memory_ctx.raw_history
+        else (message_history or [])
+    )
+
     # Build input
-    input_messages = []
-    if message_history:
-        input_messages.extend(message_history)
+    input_messages = list(effective_history)
     input_messages.append({"role": "user", "content": user_message})
 
     # --- Try primary model ---
     try:
         primary_model = create_primary_model(config)
-        agent = build_agent(registry, primary_model, model_settings)
+        agent = build_agent(registry, primary_model, model_settings, extra_instructions=extra_instructions)
 
         logger.info(
             "Running agent with primary model: %s",
@@ -252,7 +267,7 @@ async def run_agent(
     # --- Try fallback model ---
     try:
         fallback_model = create_fallback_model(config)
-        agent = build_agent(registry, fallback_model, model_settings)
+        agent = build_agent(registry, fallback_model, model_settings, extra_instructions=extra_instructions)
 
         logger.info(
             "Running agent with fallback model: %s",

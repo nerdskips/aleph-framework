@@ -35,8 +35,9 @@ from core.messaging.zapi_filter import (
     is_human_takeover_message,
     is_human_reply,
 )
-from core.messaging.zapi_send import ZAPISender
 from core.engine.pipeline import process_message
+from core.messaging.zapi_send import ZAPISender
+from core.session.memory import EpisodicMemory
 
 logger = logging.getLogger("aleph.api")
 
@@ -51,6 +52,7 @@ _habits_db = None  # HabitsDatabase | None — initialized only if habits.enable
 _buffer_timers: dict[str, asyncio.Task] = {}
 _knowledge_db = None
 _flow_engine = None  # FlowEngine | None — initialized only if flows.enabled
+_memory = None  # EpisodicMemory | None — initialized on startup
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +62,7 @@ _flow_engine = None  # FlowEngine | None — initialized only if flows.enabled
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Boot the framework on startup, cleanup on shutdown."""
-    global _registry, _redis, _sender, _habits_db, _knowledge_db, _flow_engine
+    global _registry, _redis, _sender, _habits_db, _knowledge_db, _flow_engine, _memory
 
     client_id = os.environ.get("CLIENT_ID")
     if not client_id:
@@ -116,6 +118,11 @@ async def lifespan(app: FastAPI):
         from core.flows import FlowEngine
         _flow_engine = FlowEngine(_registry.config.flows)
         logger.info("FlowEngine initialized with %d flow(s)", len(_registry.config.flows.flows))
+
+    # Boot EpisodicMemory (always on — falls back to in-memory if Redis unavailable)
+    redis_client = _redis.client if _redis else None
+    _memory = EpisodicMemory(_registry.config, redis_client=redis_client)
+    logger.info("EpisodicMemory initialized (redis=%s)", redis_client is not None)
 
     logger.info(
         "🚀 %s online — port %d — model %s — habits %s — flows %s",
@@ -266,6 +273,7 @@ async def _process_after_buffer(phone: str):
                 habits_db=_habits_db,
                 knowledge_db=_knowledge_db,
                 flow_engine=_flow_engine,
+                episodic_memory=_memory,     # ← NEW
             )
 
             logger.info(

@@ -77,6 +77,7 @@ async def process_message(
     habits_db=None,
     knowledge_db=None,
     flow_engine=None,
+    episodic_memory=None,           # ← NEW
 ) -> PipelineResult:
     """Process a message through the full pipeline.
 
@@ -96,6 +97,15 @@ async def process_message(
     config = registry.config
     habit_used = False
     _flow_step_reask: str = ""
+
+    # Episodic memory — gap check + load context
+    memory_ctx = None
+    if episodic_memory is not None and phone:
+        try:
+            await episodic_memory.check_gap_compression(phone)
+            memory_ctx = await episodic_memory.get_context(phone)
+        except Exception as e:
+            logger.warning("Episodic memory load failed (non-fatal): %s", e)
 
     # ---------------------------------------------------------------
     # 1. Input guardrail (deterministic, pre-LLM)
@@ -301,7 +311,15 @@ async def process_message(
         registry,
         user_message,
         message_history,
+        memory_ctx=memory_ctx,
     )
+
+    # Save completed turn to episodic memory (fire-and-forget)
+    if episodic_memory is not None and phone and agent_result.response:
+        try:
+            await episodic_memory.save_turn(phone, user_message, agent_result.response)
+        except Exception as e:
+            logger.warning("Episodic memory save failed (non-fatal): %s", e)
 
     response = agent_result.response
     tool_calls = agent_result.tool_calls
