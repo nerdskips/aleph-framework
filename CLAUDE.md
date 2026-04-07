@@ -170,6 +170,11 @@ See `clients/example/config.yaml` for a fully-annotated reference.
 ### Phase 11 — Media Processing — LOWER PRIORITY
 Whisper (audio), Vision (images), PDF handling in `core/media/` (currently empty stubs).
 
+### Phase 15 — Flow Engine v2 — Enterprise Conditional Flows
+New step types (`lookup`, `branch`, `set`), per-step validation + retries, variable templating (`{{ collected.field }}`), sensitive field marking, step timeouts, cancel_if patterns, webhook retry with backoff.
+Plan: `docs/superpowers/plans/2026-04-07-flow-engine-v2-enterprise.md`
+**Implement after Phase 11.**
+
 ## Available MCPs
 - `use context7` — fetch up-to-date library docs
 - `sequential-thinking` — for complex architecture problems
