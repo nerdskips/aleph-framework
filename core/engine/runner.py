@@ -192,6 +192,7 @@ async def run_agent(
     user_message: str,
     message_history: list[dict] | None = None,
     memory_ctx=None,                  # ← NEW: MemoryContext | None
+    extra_awareness: str = "",               # ← NEW
 ) -> AgentResult:
     """Run the agent with automatic fallback.
 
@@ -214,7 +215,9 @@ async def run_agent(
     # Inject episodic summary into system instructions (not history)
     extra_instructions = ""
     if memory_ctx is not None and memory_ctx.summary:
-        extra_instructions = f"\n\n[Contexto de conversas anteriores]\n{memory_ctx.summary}"
+        extra_instructions += f"\n\n[Contexto de conversas anteriores]\n{memory_ctx.summary}"
+    if extra_awareness:
+        extra_instructions += extra_awareness
 
     # Use raw history from memory if available, otherwise use passed history
     effective_history = (

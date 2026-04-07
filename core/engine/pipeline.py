@@ -305,6 +305,34 @@ async def process_message(
             logger.error("Pipeline: knowledge search failed: %s", str(e)[:200])
 
     # ---------------------------------------------------------------
+    # 1.9 Self-awareness injection (DEFAULT OFF)
+    # ---------------------------------------------------------------
+    extra_awareness = ""
+    if config.self_awareness.enabled and phone and redis_session and memory_ctx:
+        try:
+            from core.awareness.injector import build_injection, should_inject
+            from core.awareness.reader import build_awareness_state
+
+            flow_state = await redis_session.get_flow_state(phone) if flow_engine else None
+            escalation = await redis_session.get_escalation(phone)
+
+            awareness_state = await build_awareness_state(
+                config=config,
+                memory_ctx=memory_ctx,
+                flow_state=flow_state,
+                escalation=escalation,
+            )
+
+            if should_inject(config.self_awareness, awareness_state):
+                extra_awareness = f"\n\n{build_injection(config.self_awareness, awareness_state)}"
+                logger.info(
+                    "Self-awareness injection fired for %s (gap=%.0fmin)",
+                    phone, awareness_state.elapsed_minutes,
+                )
+        except Exception as e:
+            logger.warning("Self-awareness injection failed (non-fatal): %s", e)
+
+    # ---------------------------------------------------------------
     # 2. Run agent (LLM with automatic fallback)
     # ---------------------------------------------------------------
     agent_result = await run_agent(
@@ -312,6 +340,7 @@ async def process_message(
         user_message,
         message_history,
         memory_ctx=memory_ctx,
+        extra_awareness=extra_awareness,
     )
 
     # Save completed turn to episodic memory (fire-and-forget)
