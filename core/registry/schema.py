@@ -702,6 +702,22 @@ class DataFileRef(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Self-Awareness — prior state context injection (DEFAULT OFF)
+# ---------------------------------------------------------------------------
+
+class SelfAwarenessConfig(BaseModel):
+    """Agent self-awareness — inject prior state context before LLM run.
+    DEFAULT OFF. Reads episodic summary + flow/escalation state from Redis.
+    Only injects when relevance gates pass (gap + age checks)."""
+    enabled: bool = Field(False, description="DEFAULT OFF — inject prior state context")
+    return_gap_minutes: float = Field(30.0, ge=1.0, description="Min inactivity gap (minutes) before injection fires")
+    max_injection_age_hours: float = Field(4.0, ge=0.5, description="States older than this are not injected")
+    include_flow: bool = Field(True, description="Include interrupted flow state in injection")
+    include_escalation: bool = Field(True, description="Include escalation state in injection")
+    include_summary: bool = Field(True, description="Include episodic summary in injection")
+
+
+# ---------------------------------------------------------------------------
 # Root config — the full contract
 # ---------------------------------------------------------------------------
 
@@ -771,6 +787,9 @@ class FrameworkConfig(BaseModel):
     tools: list[ToolRef] = Field(default_factory=list)
     data_files: list[DataFileRef] = Field(default_factory=list)
     subagents: list[SubAgentConfig] = Field(default_factory=list, description="Specialist sub-agents (DEFAULT OFF)")
+
+    # Self-awareness — prior state injection (DEFAULT OFF)
+    self_awareness: SelfAwarenessConfig = Field(default_factory=SelfAwarenessConfig)
 
     # Metadata
     version: str = Field("1.0.0", description="Config schema version for future migrations")
