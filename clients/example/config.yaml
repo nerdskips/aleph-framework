@@ -104,10 +104,15 @@ human:
 #           on_complete:
 #             action: escalate        # hand off to human with collected data
 
-# --- Media (DEFAULT OFF) ------------------------------------------------------
+# --- Media Processing (DEFAULT OFF) — audio transcription, image description, PDF extraction
 # media:
 #   enabled: true
-#   supported_types: ["audio", "image", "pdf"]
+#   supported_types: [audio, image, pdf]   # pick what you need
+#   audio_model: whisper-1
+#   image_model: gpt-4o-mini
+#   image_prompt: "Descreva o conteúdo desta imagem de forma concisa e objetiva."
+#   max_file_size_mb: 25
+#   pdf_max_pages: 10
 
 # --- Queue (DEFAULT OFF) ------------------------------------------------------
 # queue:
