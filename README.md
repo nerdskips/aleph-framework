@@ -81,6 +81,7 @@ Claude calls the MCP tools, creates and configures the agent, and tests it — y
   - [llm](#llm)
   - [media](#media)
   - [queue](#queue)
+  - [self\_awareness](#self_awareness)
 - [Message pipeline](#message-pipeline)
 - [Running the smoke-test agent](#running-the-smoke-test-agent)
 
@@ -382,6 +383,9 @@ aleph/
       dispatcher.py    # Fire-and-forget LPUSH after pipeline
       worker.py        # BRPOP consumer — executes background jobs
     media/             # Phase 11 stub — Whisper, Vision, PDF (not yet implemented)
+    awareness/
+      reader.py        # Reads prior state (flow, escalation, episodic summary)
+      injector.py      # Injects prior state into system instructions (Phase 14)
     api/
       webhooks.py      # FastAPI entry point
     cli/
@@ -960,6 +964,22 @@ queue:
 ```
 
 **Triggers:** `pipeline_complete` | `flow_complete` | `escalation_start`
+
+---
+
+### `self_awareness`
+
+Prior state injection — injects interrupted flow context, active escalation state, and episodic memory summary when a user returns after a gap. **Default: OFF.**
+
+```yaml
+self_awareness:
+  enabled: true
+  return_gap_minutes: 30        # fire only when user returns after 30min+ gap
+  max_injection_age_hours: 4    # ignore states older than 4h
+  include_flow: true            # inject interrupted flow context
+  include_escalation: true      # inject escalation state if active
+  include_summary: true         # inject episodic memory summary
+```
 
 ---
 

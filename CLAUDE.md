@@ -107,6 +107,8 @@ Z-API webhook
 | `core/messaging/zapi_send.py` | Humanized message sending |
 | `core/knowledge/` | RAG: asyncpg + pgvector, hybrid RRF search |
 | `core/habits/` | Per-user memory, hybrid search |
+| `core/session/memory.py` | Episodic memory: rolling window + LLM compression |
+| `core/awareness/` | Self-awareness: reader + injector for prior state injection |
 
 ## Development Rules
 
@@ -145,6 +147,7 @@ habits:       # User memory (DEFAULT OFF) — dedup_threshold
 tools:        # webhook (N8N/HTTP) or code tools from YAML
 subagents:    # Specialist sub-agents invoked as tools (DEFAULT OFF) — Phase 10
 queue:        # Background jobs after pipeline (DEFAULT OFF) — Phase 10
+self_awareness: # Prior state injection (DEFAULT OFF) — gap + age gates
 data_files:   # Static files injected into system prompt
 ```
 
@@ -158,6 +161,9 @@ See `clients/example/config.yaml` for a fully-annotated reference.
   - **D1** `agent.parallel_tool_calls` → `ModelSettings(parallel_tool_calls=...)` in `core/llm/llm_router.py`
   - **D2** `subagents:` YAML section → `SubAgentConfig` → `agent.as_tool()` in `core/engine/runner.py`
   - **D3** `queue:` YAML section → `core/queue/` (jobs, dispatcher, worker) → fire-and-forget after pipeline
+- **Phase 12** — Episodic Session Memory: `core/session/memory.py`, two-tier compression (turn-based + time-based), Redis + in-memory backends
+- **Phase 13** — LLM-Agnostic Router rename: `core/llm/bifrost.py` → `core/llm/llm_router.py`
+- **Phase 14** — Self-Awareness: `core/awareness/`, relevance-gated prior state injection into system instructions (DEFAULT OFF)
 
 ## Pending Implementations
 

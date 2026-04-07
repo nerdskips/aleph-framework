@@ -23,6 +23,12 @@ agent:
 # sdk.sessions: ON by default (Redis conversation history)
 # sdk.guardrails: ON by default (tripwire system in parallel with LLM)
 # sdk.handoffs: OFF by default (single-agent for now)
+# Episodic memory fields (Phase 12 — uncomment to customize):
+#   sessions:
+#     max_raw_turns: 8            # rolling turn window; compression fires when full
+#     compression_model: ""       # empty = fallback_model → agent.model
+#     gap_compression_hours: 3.0  # deep compress when user returns after N hours
+#     summary_ttl_days: 30        # days to retain episodic summary
 
 # --- Debug & Observability (ON by default — full auditability) ----------------
 # Uncomment to customize:
@@ -188,3 +194,12 @@ data_files: []
 #       action: webhook
 #       webhook_url: "${SLACK_WEBHOOK_URL}"
 #       include_fields: [phone, last_message]
+
+# --- Self-Awareness (DEFAULT OFF) — inject prior state context on user return --------
+# self_awareness:
+#   enabled: true
+#   return_gap_minutes: 30        # fire only when user returns after 30min+ gap
+#   max_injection_age_hours: 4    # ignore states older than 4h
+#   include_flow: true            # inject interrupted flow context
+#   include_escalation: true      # inject escalation state if active
+#   include_summary: true         # inject episodic memory summary
