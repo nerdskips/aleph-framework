@@ -30,6 +30,9 @@ def extract_message(payload: dict) -> dict | None:
     if not isinstance(payload, dict):
         return None
 
+    # Extract media metadata for pre-pipeline processing
+    media_type, media_url, media_mimetype = _extract_media_meta(payload)
+
     return {
         "phone": payload.get("phone"),
         "text": _extract_text(payload),
@@ -41,6 +44,9 @@ def extract_message(payload: dict) -> dict | None:
         "is_broadcast": payload.get("broadcast", False),
         "type": payload.get("type", ""),
         "reference_message_id": payload.get("referenceMessageId", ""),
+        "media_type": media_type,
+        "media_url": media_url,
+        "media_mimetype": media_mimetype,
         "raw": payload,
     }
 
@@ -118,9 +124,12 @@ def should_filter(message: dict, config: FrameworkConfig) -> str | None:
     if message.get("from_me") and message.get("from_api"):
         return "filtered:from_api"
 
-    # Filter empty text
+    # Filter empty text — but allow media through when media processing is enabled
     if not message.get("text"):
-        return "filtered:no_text"
+        if config.media.enabled and message.get("media_type") in [t.value for t in config.media.supported_types]:
+            pass  # media will be processed pre-buffer
+        else:
+            return "filtered:no_text"
 
     # Filter missing phone
     if not message.get("phone"):
@@ -181,3 +190,30 @@ def _extract_text(payload: dict) -> str:
         return "[sticker]"
 
     return ""
+
+
+def _extract_media_meta(payload: dict) -> tuple[str | None, str | None, str | None]:
+    """Extract media type, URL, and mimetype from a Z-API payload.
+
+    Returns (media_type, media_url, media_mimetype) or (None, None, None).
+
+    Z-API audio payload:   {"audio": {"audioUrl": "...", "mimeType": "audio/ogg"}}
+    Z-API image payload:   {"image": {"imageUrl": "...", "mimeType": "image/jpeg"}}
+    Z-API document payload: {"document": {"documentUrl": "...", "mimeType": "application/pdf"}}
+    """
+    audio = payload.get("audio", {})
+    if isinstance(audio, dict) and audio.get("audioUrl"):
+        return "audio", audio["audioUrl"], audio.get("mimeType", "audio/ogg")
+
+    image = payload.get("image", {})
+    if isinstance(image, dict) and image.get("imageUrl"):
+        return "image", image["imageUrl"], image.get("mimeType", "image/jpeg")
+
+    doc = payload.get("document", {})
+    if isinstance(doc, dict) and doc.get("documentUrl"):
+        mimetype = doc.get("mimeType", "application/octet-stream")
+        # Only treat as PDF if mimetype matches
+        media_type = "pdf" if "pdf" in mimetype.lower() else "document"
+        return media_type, doc["documentUrl"], mimetype
+
+    return None, None, None

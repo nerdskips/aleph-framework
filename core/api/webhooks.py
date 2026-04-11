@@ -227,6 +227,20 @@ async def webhook_zapi(request: Request):
     if message_id and await _redis.is_duplicate(message_id):
         return JSONResponse({"status": "duplicate"})
 
+    # --- Media processing (pre-buffer) ---
+    if _registry.config.media.enabled and message.get("media_type"):
+        try:
+            from core.media.processor import process_media
+            processed = await process_media(message, _registry.config)
+            if processed:
+                text = processed
+            elif not text or text.startswith("["):
+                # No caption fallback and processing failed/unsupported — skip
+                logger.debug("Media message skipped (no processable content): %s", message.get("media_type"))
+                return JSONResponse({"status": "filtered", "reason": "media_unprocessable"})
+        except Exception as e:
+            logger.error("Media pre-processing error: %s", str(e)[:200])
+
     # --- Buffer chunked messages ---
     await _redis.buffer_message(phone, text)
 

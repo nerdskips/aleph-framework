@@ -497,13 +497,21 @@ class FollowUpConfig(BaseModel):
 # ---------------------------------------------------------------------------
 
 class MediaConfig(BaseModel):
-    """Media processing.
-    DEFAULT OFF — enable per client when they need audio/image/PDF."""
-    enabled: bool = Field(False)
-    supported_types: list[MediaType] = Field(default_factory=list)
-    audio_model: str = Field("whisper-1", description="Whisper model for transcription")
-    image_model: str = Field("openai/gpt-4o-mini", description="Vision model via Bifrost")
-    max_file_size_mb: int = Field(25, ge=1, description="Max file size to process")
+    """Media processing — audio transcription, image description, PDF extraction.
+    DEFAULT OFF — adds API cost (Whisper, Vision). Enable per client."""
+    enabled: bool = Field(False, description="DEFAULT OFF — enable audio/image/PDF processing")
+    supported_types: list[MediaType] = Field(
+        default_factory=list,
+        description="Which media types to process: audio, image, pdf",
+    )
+    audio_model: str = Field("whisper-1", description="OpenAI Whisper model for audio transcription")
+    image_model: str = Field("gpt-4o-mini", description="Vision model for image description")
+    image_prompt: str = Field(
+        "Descreva o conteúdo desta imagem de forma concisa e objetiva.",
+        description="Prompt sent with image to vision model",
+    )
+    max_file_size_mb: int = Field(25, ge=1, le=100, description="Max media file size to process in MB")
+    pdf_max_pages: int = Field(10, ge=1, le=100, description="Max PDF pages to extract text from")
 
 
 # ---------------------------------------------------------------------------

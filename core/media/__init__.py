@@ -1,3 +1,7 @@
-"""Aleph Framework — Media Processing (Phase 11 stub)."""
+"""Aleph Framework — Media processing (audio, image, PDF)."""
 
 from __future__ import annotations
+
+from core.media.processor import process_media
+
+__all__ = ["process_media"]
