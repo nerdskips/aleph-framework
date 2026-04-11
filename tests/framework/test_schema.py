@@ -1,5 +1,7 @@
 """Test: schema.py validates config.yaml correctly — v2 with SDK + debug."""
 
+from __future__ import annotations
+
 import yaml
 import sys
 sys.path.insert(0, "/root/zuper-framework")

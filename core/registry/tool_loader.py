@@ -220,6 +220,41 @@ def load_tools(config: FrameworkConfig) -> list[Any]:
     return all_tools
 
 
+def build_tools_from_config(tools: list, client_dir: Any) -> list[Any]:
+    """Build tools from a list of ToolRef objects and a client directory.
+
+    Variant of load_tools() that accepts tools+dir directly instead of a
+    full FrameworkConfig — used by sub-agent construction in runner.py.
+
+    Args:
+        tools:      List of ToolRef objects
+        client_dir: Path to the client directory (for code tool imports)
+
+    Returns:
+        Flat list of tool objects ready to pass to Agent(tools=[...])
+    """
+    from core.registry.schema import ToolType
+    from core.tools.webhook import generate_webhook_tools
+
+    all_tools = []
+
+    webhook_refs = [t for t in tools if t.type == ToolType.WEBHOOK]
+    if webhook_refs:
+        all_tools.extend(generate_webhook_tools(webhook_refs))
+
+    code_refs = [t for t in tools if t.type == ToolType.CODE]
+    if code_refs:
+        from pathlib import Path as _Path
+        tools_dir = _Path(client_dir) / "tools"
+        for tool_ref in code_refs:
+            if not tool_ref.module:
+                continue
+            module = _import_module_from_path(tool_ref.module, tools_dir)
+            all_tools.extend(_extract_tools_from_module(module, tool_ref.functions))
+
+    return all_tools
+
+
 def validate_tools(config: FrameworkConfig) -> dict[str, list[str]]:
     """Validate tool modules exist without importing them.
     Useful for quick config validation without SDK dependency.

@@ -23,6 +23,12 @@ agent:
 # sdk.sessions: ON by default (Redis conversation history)
 # sdk.guardrails: ON by default (tripwire system in parallel with LLM)
 # sdk.handoffs: OFF by default (single-agent for now)
+# Episodic memory fields (Phase 12 — uncomment to customize):
+#   sessions:
+#     max_raw_turns: 8            # rolling turn window; compression fires when full
+#     compression_model: ""       # empty = fallback_model → agent.model
+#     gap_compression_hours: 3.0  # deep compress when user returns after N hours
+#     summary_ttl_days: 30        # days to retain episodic summary
 
 # --- Debug & Observability (ON by default — full auditability) ----------------
 # Uncomment to customize:
@@ -151,3 +157,49 @@ tools:
 
 # --- Data files (none for echo bot) -------------------------------------------
 data_files: []
+
+# --- Sub-agents (DEFAULT OFF) — specialist agents invoked as tools ------------
+# Uncomment and configure to enable MANAGER pattern (Phase 10 D2)
+# subagents:
+#   - name: logistics
+#     tool_name: consultar_entrega
+#     tool_description: "Consulta prazo e status de entrega para um CEP e produto"
+#     instructions: "Você é especialista em logística. Responda apenas sobre fretes e prazos."
+#     model: "openai/gpt-4.1-nano"   # use a cheaper model for specialist tasks
+#     max_turns: 3
+#     tools:
+#       - name: frete_api
+#         type: webhook
+#         webhook_url: "${FRETE_API_URL}"
+#         parameters:
+#           cep: {type: string, description: "CEP de destino", required: true}
+
+# --- Background job queue (DEFAULT OFF) — fire-and-forget after each message --
+# Uncomment to enable (Phase 10 D3)
+# queue:
+#   enabled: true
+#   jobs:
+#     - trigger: pipeline_complete        # fires after every agent response
+#       action: webhook
+#       webhook_url: "${CRM_WEBHOOK_URL}"
+#       include_fields: [phone, response, elapsed_seconds]
+#
+#     - trigger: flow_complete            # fires when a flow finishes
+#       flow_id: pedido
+#       action: webhook
+#       webhook_url: "${ORDERS_WEBHOOK_URL}"
+#       include_fields: [phone, collected]
+#
+#     - trigger: escalation_start         # fires when human escalation begins
+#       action: webhook
+#       webhook_url: "${SLACK_WEBHOOK_URL}"
+#       include_fields: [phone, last_message]
+
+# --- Self-Awareness (DEFAULT OFF) — inject prior state context on user return --------
+# self_awareness:
+#   enabled: true
+#   return_gap_minutes: 30        # fire only when user returns after 30min+ gap
+#   max_injection_age_hours: 4    # ignore states older than 4h
+#   include_flow: true            # inject interrupted flow context
+#   include_escalation: true      # inject escalation state if active
+#   include_summary: true         # inject episodic memory summary

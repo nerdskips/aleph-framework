@@ -28,7 +28,7 @@ from core.guardrails.output import OutputGuardrailResult, check_output
 from core.registry.registry import AgentRegistry
 from core.registry.schema import GuardrailAction
 
-logger = logging.getLogger("aleph.pipeline")
+logger = logging.getLogger("aleph.engine.pipeline")
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +48,8 @@ class PipelineResult:
         habit_used: bool = False,
         flow_active: bool = False,
         elapsed_seconds: float = 0.0,
+        user_message: str = "",
+        flow_collected: dict | None = None,
     ):
         self.response = response
         self.input_classification = input_classification
@@ -57,6 +59,8 @@ class PipelineResult:
         self.habit_used = habit_used
         self.flow_active = flow_active
         self.elapsed_seconds = elapsed_seconds
+        self.user_message = user_message
+        self.flow_collected = flow_collected or {}
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +77,7 @@ async def process_message(
     habits_db=None,
     knowledge_db=None,
     flow_engine=None,
+    episodic_memory=None,           # ← NEW
 ) -> PipelineResult:
     """Process a message through the full pipeline.
 
@@ -92,6 +97,15 @@ async def process_message(
     config = registry.config
     habit_used = False
     _flow_step_reask: str = ""
+
+    # Episodic memory — gap check + load context
+    memory_ctx = None
+    if episodic_memory is not None and phone:
+        try:
+            await episodic_memory.check_gap_compression(phone)
+            memory_ctx = await episodic_memory.get_context(phone)
+        except Exception as e:
+            logger.warning("Episodic memory load failed (non-fatal): %s", e)
 
     # ---------------------------------------------------------------
     # 1. Input guardrail (deterministic, pre-LLM)
@@ -291,13 +305,50 @@ async def process_message(
             logger.error("Pipeline: knowledge search failed: %s", str(e)[:200])
 
     # ---------------------------------------------------------------
+    # 1.9 Self-awareness injection (DEFAULT OFF)
+    # ---------------------------------------------------------------
+    extra_awareness = ""
+    if config.self_awareness.enabled and phone and redis_session and memory_ctx:
+        try:
+            from core.awareness.injector import build_injection, should_inject
+            from core.awareness.reader import build_awareness_state
+
+            flow_state = await redis_session.get_flow_state(phone) if flow_engine else None
+            escalation = await redis_session.get_escalation(phone)
+
+            awareness_state = await build_awareness_state(
+                config=config,
+                memory_ctx=memory_ctx,
+                flow_state=flow_state,
+                escalation=escalation,
+            )
+
+            if should_inject(config.self_awareness, awareness_state):
+                extra_awareness = f"\n\n{build_injection(config.self_awareness, awareness_state)}"
+                logger.info(
+                    "Self-awareness injection fired for %s (gap=%.0fmin)",
+                    phone, awareness_state.elapsed_minutes,
+                )
+        except Exception as e:
+            logger.warning("Self-awareness injection failed (non-fatal): %s", e)
+
+    # ---------------------------------------------------------------
     # 2. Run agent (LLM with automatic fallback)
     # ---------------------------------------------------------------
     agent_result = await run_agent(
         registry,
         user_message,
         message_history,
+        memory_ctx=memory_ctx,
+        extra_awareness=extra_awareness,
     )
+
+    # Save completed turn to episodic memory (fire-and-forget)
+    if episodic_memory is not None and phone and agent_result.response:
+        try:
+            await episodic_memory.save_turn(phone, user_message, agent_result.response)
+        except Exception as e:
+            logger.warning("Episodic memory save failed (non-fatal): %s", e)
 
     response = agent_result.response
     tool_calls = agent_result.tool_calls
@@ -331,14 +382,31 @@ async def process_message(
         elapsed, output_result.blocked, tool_calls or "(none)", habit_used,
     )
 
-    return PipelineResult(
+    result = PipelineResult(
         response=response,
         input_classification=classification,
         output_check=output_result,
         skipped_llm=False,
         habit_used=habit_used,
         elapsed_seconds=elapsed,
+        user_message=user_message,
     )
+
+    # D3 — background jobs (fire-and-forget, never raises)
+    if config.queue.enabled:
+        try:
+            from core.queue.dispatcher import dispatch_jobs
+            await dispatch_jobs(
+                config=config,
+                result=result,
+                redis_session=redis_session,
+                phone=phone,
+                trigger="pipeline_complete",
+            )
+        except Exception as e:
+            logger.error("Queue dispatch error: %s", e)
+
+    return result
 
 
 # ---------------------------------------------------------------------------

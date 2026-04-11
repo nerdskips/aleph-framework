@@ -102,11 +102,13 @@ Z-API webhook
 | `core/session/redis.py` | Buffer, anti-spam, lock, conversation context |
 | `core/session/redis_escalation.py` | Escalation state |
 | `core/human/escalation.py` | Pause, notify responsible, LLM reformulation |
-| `core/llm/bifrost.py` | Multi-provider LLM routing + fallback |
+| `core/llm/llm_router.py` | Provider-agnostic LLM routing + fallback |
 | `core/messaging/zapi_filter.py` | Webhook parsing + filtering |
 | `core/messaging/zapi_send.py` | Humanized message sending |
 | `core/knowledge/` | RAG: asyncpg + pgvector, hybrid RRF search |
 | `core/habits/` | Per-user memory, hybrid search |
+| `core/session/memory.py` | Episodic memory: rolling window + LLM compression |
+| `core/awareness/` | Self-awareness: reader + injector for prior state injection |
 
 ## Development Rules
 
@@ -134,8 +136,8 @@ The top-level sections of `clients/<name>/config.yaml`:
 
 ```yaml
 client_id: str
-agent:        # Identity, model, temperature, system_prompt_file
-sdk:          # sessions (Redis history), guardrails (tripwire), handoffs
+agent:        # Identity, model, temperature, system_prompt_file, parallel_tool_calls
+sdk:          # sessions (Redis history), guardrails (tripwire), handoffs (max_turns)
 debug:        # tracing, logging, dry_run
 api:          # webhook port and path
 human:        # enabled, responsible_phones, escalation_session_ttl
@@ -143,21 +145,35 @@ guardrails:   # input_patterns (keywords/regex → action), output_rules
 knowledge:    # RAG (DEFAULT OFF) — auto_search, chunking, pgvector
 habits:       # User memory (DEFAULT OFF) — dedup_threshold
 tools:        # webhook (N8N/HTTP) or code tools from YAML
+subagents:    # Specialist sub-agents invoked as tools (DEFAULT OFF) — Phase 10
+queue:        # Background jobs after pipeline (DEFAULT OFF) — Phase 10
+self_awareness: # Prior state injection (DEFAULT OFF) — gap + age gates
 data_files:   # Static files injected into system prompt
 ```
 
 See `clients/example/config.yaml` for a fully-annotated reference.
 
+## Completed Phases
+
+- **Phase 8** — Flows (state machine): `core/flows/`, Redis state, YAML-driven steps
+- **Phase 9** — MCP Server: `core/mcp/server.py`, 8 tools, `aleph-mcp` CLI entry point
+- **Phase 10** — Parallel Execution + Sub-Agents (branch: `feature/phase-10-parallel-subagents`):
+  - **D1** `agent.parallel_tool_calls` → `ModelSettings(parallel_tool_calls=...)` in `core/llm/llm_router.py`
+  - **D2** `subagents:` YAML section → `SubAgentConfig` → `agent.as_tool()` in `core/engine/runner.py`
+  - **D3** `queue:` YAML section → `core/queue/` (jobs, dispatcher, worker) → fire-and-forget after pipeline
+- **Phase 12** — Episodic Session Memory: `core/session/memory.py`, two-tier compression (turn-based + time-based), Redis + in-memory backends
+- **Phase 13** — LLM-Agnostic Router rename: `core/llm/bifrost.py` → `core/llm/llm_router.py`
+- **Phase 14** — Self-Awareness: `core/awareness/`, relevance-gated prior state injection into system instructions (DEFAULT OFF)
+
 ## Pending Implementations
 
-### Phase 8 — Flows (State Machine) — HIGH PRIORITY
-Declarative multi-step flows where the framework controls the conversation state and LLM only handles per-step dialogue. Redis state at `aleph:{cid}:flow:{phone}`. Schema: `FlowConfig`, `StepConfig`, `OnCompleteConfig`. Lives in `core/flows/`.
-
-### Phase 9 — MCP Server — MEDIUM PRIORITY
-`core/mcp/server.py` exposing framework tools so agents can be created entirely via Claude Code.
-
-### Phase 10 — Media Processing — LOWER PRIORITY
+### Phase 11 — Media Processing — LOWER PRIORITY
 Whisper (audio), Vision (images), PDF handling in `core/media/` (currently empty stubs).
+
+### Phase 15 — Flow Engine v2 — Enterprise Conditional Flows
+New step types (`lookup`, `branch`, `set`), per-step validation + retries, variable templating (`{{ collected.field }}`), sensitive field marking, step timeouts, cancel_if patterns, webhook retry with backoff.
+Plan: `docs/superpowers/plans/2026-04-07-flow-engine-v2-enterprise.md`
+**Implement after Phase 11.**
 
 ## Available MCPs
 - `use context7` — fetch up-to-date library docs

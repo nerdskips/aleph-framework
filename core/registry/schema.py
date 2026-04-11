@@ -150,6 +150,7 @@ class AgentConfig(BaseModel):
     temperature: float = Field(0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(1024, ge=1)
     system_prompt_file: str = Field("prompts/system.md", description="Path relative to client dir")
+    parallel_tool_calls: bool = Field(True, description="Allow LLM to call multiple tools in parallel (DEFAULT ON)")
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +164,11 @@ class SDKSessionsConfig(BaseModel):
     redis_key_prefix: str = Field("aleph:session:", description="Redis key prefix for SDK sessions")
     history_limit: int = Field(50, ge=5, description="Max messages kept in SDK session history")
     ttl: int = Field(10800, ge=60, description="Session TTL in seconds (default 3h)")
+    # Episodic memory — Phase 12
+    max_raw_turns: int = Field(8, ge=2, le=50, description="Rolling raw turn window. Compression fires when full.")
+    compression_model: str = Field("", description="Model for compression. Empty = fallback_model → agent.model")
+    gap_compression_hours: float = Field(3.0, ge=0.5, description="Hours of inactivity that trigger deep compression")
+    summary_ttl_days: int = Field(30, ge=1, description="Days to retain episodic summary before expiry")
 
 
 class SDKGuardrailsConfig(BaseModel):
@@ -505,13 +511,40 @@ class MediaConfig(BaseModel):
 # DEFAULT OFF — only for high-availability setups
 # ---------------------------------------------------------------------------
 
+class QueueJobConfig(BaseModel):
+    """A single background job triggered by a pipeline event.
+
+    Triggers:
+      pipeline_complete   — fires after every successful agent response
+      flow_complete       — fires when a specific flow reaches on_complete
+      escalation_start    — fires when human escalation begins
+
+    Actions:
+      webhook             — POST job payload to external URL (CRM, Sheets, Slack, etc.)
+    """
+    trigger: str = Field(..., description="pipeline_complete | flow_complete | escalation_start")
+    flow_id: str = Field("", description="Required when trigger=flow_complete — which flow")
+    action: str = Field("webhook", description="Job action type: 'webhook'")
+    webhook_url: str = Field("", description="URL to POST the job payload to")
+    include_fields: list[str] = Field(
+        default_factory=list,
+        description="Fields from pipeline result to include: phone, response, elapsed_seconds, collected"
+    )
+    timeout_seconds: int = Field(10, ge=1, description="HTTP timeout for this job")
+
+
 class QueueConfig(BaseModel):
-    """ARQ async queue.
-    DEFAULT OFF — enable when messages can't be lost on restart."""
+    """Background job queue — fire-and-forget tasks after pipeline completion.
+    DEFAULT OFF — enable when agent needs to update external systems after every message.
+
+    Jobs run asynchronously after the response is sent. Errors are logged, never raised.
+    Redis-backed: aleph:{client_id}:queue (LPUSH/BRPOP).
+    """
     enabled: bool = Field(False)
-    max_retries: int = Field(3, ge=0)
-    retry_delay_seconds: int = Field(5, ge=1)
-    job_timeout_seconds: int = Field(120, ge=10)
+    jobs: list[QueueJobConfig] = Field(default_factory=list)
+    max_retries: int = Field(3, ge=0, description="Retry count on job failure")
+    retry_delay_seconds: int = Field(5, ge=1, description="Delay between retries")
+    job_timeout_seconds: int = Field(120, ge=10, description="Max job execution time")
 
 
 # ---------------------------------------------------------------------------
@@ -632,6 +665,32 @@ class ToolRef(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Sub-Agents — specialist agents invoked as tools (MANAGER pattern)
+# DEFAULT OFF — most agents start single-agent
+# ---------------------------------------------------------------------------
+
+class SubAgentConfig(BaseModel):
+    """A specialist sub-agent the main orchestrator can invoke as a tool.
+
+    The sub-agent runs its own full Agent+Runner loop and returns a result string.
+    The orchestrator LLM decides when to call it — and can call multiple in parallel
+    when agent.parallel_tool_calls=true.
+
+    Two definition modes:
+      inline: instructions + tools defined directly here
+      ref:    points to another agent directory (e.g. 'clients/financeiro')
+    """
+    name: str = Field(..., description="Internal name for the sub-agent")
+    tool_name: str = Field(..., description="Tool name exposed to the orchestrator LLM")
+    tool_description: str = Field(..., description="Description shown to the orchestrator LLM")
+    instructions: str = Field("", description="Sub-agent system prompt (inline mode)")
+    ref: str = Field("", description="Path to another agent dir — loads its config (ref mode)")
+    model: str = Field("", description="Model override. Empty = inherits main agent model")
+    tools: list[ToolRef] = Field(default_factory=list, description="Tools available to this sub-agent")
+    max_turns: int = Field(5, ge=1, description="Max agent turns for this sub-agent invocation")
+
+
+# ---------------------------------------------------------------------------
 # Data — business data files
 # ---------------------------------------------------------------------------
 
@@ -640,6 +699,22 @@ class DataFileRef(BaseModel):
     key: str = Field(..., description="Key to access at runtime (e.g. 'catalog', 'shipping')")
     file: str = Field(..., description="Path relative to client data/ dir (e.g. 'cardapio.json')")
     format: str = Field("json", description="File format: 'json', 'csv', 'yaml'")
+
+
+# ---------------------------------------------------------------------------
+# Self-Awareness — prior state context injection (DEFAULT OFF)
+# ---------------------------------------------------------------------------
+
+class SelfAwarenessConfig(BaseModel):
+    """Agent self-awareness — inject prior state context before LLM run.
+    DEFAULT OFF. Reads episodic summary + flow/escalation state from Redis.
+    Only injects when relevance gates pass (gap + age checks)."""
+    enabled: bool = Field(False, description="DEFAULT OFF — inject prior state context")
+    return_gap_minutes: float = Field(30.0, ge=1.0, description="Min inactivity gap (minutes) before injection fires")
+    max_injection_age_hours: float = Field(4.0, ge=0.5, description="States older than this are not injected")
+    include_flow: bool = Field(True, description="Include interrupted flow state in injection")
+    include_escalation: bool = Field(True, description="Include escalation state in injection")
+    include_summary: bool = Field(True, description="Include episodic summary in injection")
 
 
 # ---------------------------------------------------------------------------
@@ -711,6 +786,10 @@ class FrameworkConfig(BaseModel):
     # Client-specific resources
     tools: list[ToolRef] = Field(default_factory=list)
     data_files: list[DataFileRef] = Field(default_factory=list)
+    subagents: list[SubAgentConfig] = Field(default_factory=list, description="Specialist sub-agents (DEFAULT OFF)")
+
+    # Self-awareness — prior state injection (DEFAULT OFF)
+    self_awareness: SelfAwarenessConfig = Field(default_factory=SelfAwarenessConfig)
 
     # Metadata
     version: str = Field("1.0.0", description="Config schema version for future migrations")
