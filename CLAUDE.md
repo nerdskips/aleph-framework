@@ -107,6 +107,8 @@ Z-API webhook
 | `core/messaging/zapi_send.py` | Humanized message sending |
 | `core/knowledge/` | RAG: asyncpg + pgvector, hybrid RRF search |
 | `core/habits/` | Per-user memory, hybrid search |
+| `core/session/memory.py` | Episodic memory: rolling window + LLM compression |
+| `core/awareness/` | Self-awareness: reader + injector for prior state injection |
 | `core/media/` | Audio transcription (Whisper), image description (Vision), PDF extraction |
 
 ## Development Rules
@@ -146,6 +148,7 @@ habits:       # User memory (DEFAULT OFF) — dedup_threshold
 tools:        # webhook (N8N/HTTP) or code tools from YAML
 subagents:    # Specialist sub-agents invoked as tools (DEFAULT OFF) — Phase 10
 queue:        # Background jobs after pipeline (DEFAULT OFF) — Phase 10
+self_awareness: # Prior state injection (DEFAULT OFF) — gap + age gates
 media:        # Media processing (DEFAULT OFF) — audio, image, PDF — Phase 11
 data_files:   # Static files injected into system prompt
 ```
@@ -161,6 +164,14 @@ See `clients/example/config.yaml` for a fully-annotated reference.
   - **D2** `subagents:` YAML section → `SubAgentConfig` → `agent.as_tool()` in `core/engine/runner.py`
   - **D3** `queue:` YAML section → `core/queue/` (jobs, dispatcher, worker) → fire-and-forget after pipeline
 - **Phase 11** — Media Processing: `core/media/` — Whisper audio transcription, Vision image description, pypdf extraction; pre-buffer processing in webhooks
+- **Phase 12** — Episodic Session Memory: `core/session/memory.py`, two-tier compression (turn-based + time-based), Redis + in-memory backends
+- **Phase 13** — LLM-Agnostic Router rename: `core/llm/bifrost.py` → `core/llm/llm_router.py`
+- **Phase 14** — Self-Awareness: `core/awareness/`, relevance-gated prior state injection into system instructions (DEFAULT OFF)
+
+### Phase 15 — Flow Engine v2 — Enterprise Conditional Flows
+New step types (`lookup`, `branch`, `set`), per-step validation + retries, variable templating (`{{ collected.field }}`), sensitive field marking, step timeouts, cancel_if patterns, webhook retry with backoff.
+Plan: `docs/superpowers/plans/2026-04-07-flow-engine-v2-enterprise.md`
+**Implement after Phase 11.**
 
 ## Available MCPs
 - `use context7` — fetch up-to-date library docs
