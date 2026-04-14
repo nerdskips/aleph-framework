@@ -15,6 +15,8 @@ Usage: enable via YAML (DEFAULT OFF)
 from __future__ import annotations
 
 from core.flows.engine import FlowEngine, FlowResolution
+from core.flows.expr import evaluate as evaluate_expr
 from core.flows.state import FlowState
+from core.flows.template import render as render_template
 
-__all__ = ["FlowEngine", "FlowResolution", "FlowState"]
+__all__ = ["FlowEngine", "FlowResolution", "FlowState", "evaluate_expr", "render_template"]

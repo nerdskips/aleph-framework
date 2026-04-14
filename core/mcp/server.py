@@ -500,7 +500,7 @@ async def chat_message(name: str, message: str) -> str:
         flow_engine = None
         if registry.config.flows.enabled and redis_session:
             from core.flows import FlowEngine
-            flow_engine = FlowEngine(registry.config.flows)
+            flow_engine = FlowEngine(registry.config.flows, tools=registry.config.tools)
 
         try:
             result = await process_message(
