@@ -281,6 +281,76 @@ async def process_message(
             _flow_step_reask = flow_result.step_message
             logger.info("Pipeline: flow pause for %s, LLM will answer then re-ask step", phone)
 
+        # --- Phase 15 actions ---
+
+        if flow_result.action == "cancelled":
+            logger.info("Pipeline: flow cancelled for %s", phone)
+            return PipelineResult(
+                response=flow_result.message,
+                skipped_llm=True,
+                flow_active=False,
+                elapsed_seconds=time.monotonic() - start,
+            )
+
+        if flow_result.action in ("timeout_reask", "timeout_cancelled"):
+            logger.info("Pipeline: flow timeout (%s) for %s", flow_result.action, phone)
+            return PipelineResult(
+                response=flow_result.message,
+                skipped_llm=True,
+                flow_active=flow_result.action == "timeout_reask",
+                elapsed_seconds=time.monotonic() - start,
+            )
+
+        if flow_result.action == "timeout_escalated":
+            logger.info("Pipeline: flow timeout escalated for %s", phone)
+            result = await _handle_escalation(
+                config=config,
+                phone=phone,
+                user_message=user_message,
+                redis_session=redis_session,
+                sender=sender,
+                classification=_NoMatchClassification("flow_timeout"),
+                start=start,
+            )
+            if result is not None:
+                return result
+
+        if flow_result.action == "validate_fail":
+            # Inject the tool's validation message into LLM context so the agent
+            # responds naturally instead of sending a canned error message
+            if flow_result.validation_injection:
+                user_message = (
+                    f"{user_message}\n\n"
+                    f"[SISTEMA: A resposta do usuário não passou na validação. "
+                    f"Mensagem do validador: {flow_result.validation_injection}. "
+                    f"Informe o usuário de forma natural e peça que tente novamente.]"
+                )
+                logger.info("Pipeline: flow validate_fail for %s, LLM injection applied", phone)
+            _flow_step_reask = flow_result.message  # re-ask step after LLM response
+
+        if flow_result.action == "validate_exceeded":
+            on_exceed = flow_result.on_exceed
+            logger.info("Pipeline: flow validate_exceeded for %s, on_exceed=%s", phone, on_exceed)
+            if on_exceed == "escalate":
+                result = await _handle_escalation(
+                    config=config,
+                    phone=phone,
+                    user_message=user_message,
+                    redis_session=redis_session,
+                    sender=sender,
+                    classification=_NoMatchClassification("flow_validate_exceeded"),
+                    start=start,
+                )
+                if result is not None:
+                    return result
+            else:  # cancel
+                return PipelineResult(
+                    response=flow_result.exceed_message,
+                    skipped_llm=True,
+                    flow_active=False,
+                    elapsed_seconds=time.monotonic() - start,
+                )
+
         # action == "none": no flow active, continue normally
 
     # ---------------------------------------------------------------
@@ -563,8 +633,10 @@ async def _call_flow_webhook(url: str, method: str, collected: dict) -> str:
 class _NoMatchClassification:
     """Minimal ClassificationResult-like object for escalation calls without a guardrail match."""
     matched = False
-    pattern_name = "flow_complete"
     action = None
+
+    def __init__(self, pattern_name: str = "flow_complete"):
+        self.pattern_name = pattern_name
 
 
 # ---------------------------------------------------------------------------

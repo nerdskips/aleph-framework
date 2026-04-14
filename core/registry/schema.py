@@ -97,6 +97,13 @@ class OnCompleteAction(str, Enum):
     START_FLOW      = "start_flow"        # chain into another flow
 
 
+class StepType(str, Enum):
+    """Step execution type."""
+    MESSAGE = "message"  # ask user, collect answer, advance (default)
+    LOOKUP  = "lookup"   # call external API, store result, auto-advance (no user interaction)
+    BRANCH  = "branch"   # evaluate conditions, jump to step (no user interaction)
+
+
 # ---------------------------------------------------------------------------
 # Debug & Observability — ALWAYS ON by default, fully auditable
 # ---------------------------------------------------------------------------
@@ -418,15 +425,84 @@ class OnCompleteConfig(BaseModel):
     )
 
 
+class StepValidation(BaseModel):
+    """Per-step answer validation. Only applies to type=message steps.
+
+    Developer configures a webhook tool; the engine POSTs the collected answer
+    and expects {"valid": bool, "message": str}. On failure, the tool's message
+    is injected into the LLM context so the agent responds naturally (no canned errors).
+    """
+    tool: str = Field(
+        "",
+        description=(
+            "Name of a configured webhook tool (from the tools: section) to call for validation. "
+            "Engine POSTs {message: answer, collected: {...}} and expects {valid: bool, message: str}"
+        ),
+    )
+    max_retries: int = Field(2, ge=0, le=10, description="Max retries before on_exceed fires")
+    on_exceed: str = Field(
+        "escalate",
+        description="Action after max_retries: 'escalate' | 'cancel'",
+    )
+    exceed_message: str = Field(
+        "",
+        description="Message to send on cancel exceed. Empty = use flow cancel_message",
+    )
+
+
+class BranchCondition(BaseModel):
+    """Single condition in a branch step. Evaluated in order; first match wins."""
+    model_config = {"populate_by_name": True}
+
+    if_expr: str = Field("", alias="if", description="Condition: 'collected.field == value'")
+    jump_to: str = Field("", description="Step ID to jump to if condition is true")
+    else_jump: str = Field("", alias="else", description="Fallback step ID (last condition only)")
+
+
+class LookupConfig(BaseModel):
+    """External API call config for lookup steps."""
+    url: str = Field(..., description="Endpoint URL (supports {{ collected.field }} templating)")
+    method: str = Field("POST", description="HTTP method: GET | POST")
+    payload: dict = Field(default_factory=dict, description="Request body (supports templating in values)")
+    headers: dict = Field(default_factory=dict, description="Extra HTTP headers")
+    timeout_seconds: int = Field(10, ge=1, le=60, description="Request timeout")
+    response_key: str = Field(
+        "",
+        description="Dot-path into response JSON to extract (e.g. 'data.customer_type'). Empty = store full response",
+    )
+    on_error: str = Field(
+        "escalate",
+        description="Action on HTTP error/timeout: 'escalate' | 'cancel' | 'jump_to' | 'continue'",
+    )
+    error_jump: str = Field("", description="Step ID for on_error=jump_to")
+    retry_attempts: int = Field(2, ge=0, le=5, description="Retry attempts on 5xx/timeout")
+    retry_backoff_seconds: float = Field(1.5, description="Base seconds for exponential backoff between retries")
+
+
 class StepConfig(BaseModel):
     """A single step in a flow. The framework sends message, collects the reply, advances."""
     id: str = Field(..., description="Unique step identifier within the flow")
-    message: str = Field(..., description="Message sent to the user at this step")
+    message: str = Field("", description="Message sent to the user (required for type=message steps)")
     collect_as: str = Field("", description="Key under which the user's reply is stored in collected data")
     next: str = Field("", description="ID of the next step. Empty = last step, triggers on_complete")
     on_complete: OnCompleteConfig = Field(
         default_factory=OnCompleteConfig,
         description="What to do when this is the last step and the user has answered",
+    )
+
+    # Phase 15 additions
+    type: StepType = Field(StepType.MESSAGE, description="Step execution type (default: message)")
+    validation: StepValidation | None = Field(None, description="Answer validation (message steps only)")
+    lookup: LookupConfig | None = Field(None, description="External API call config (lookup steps only)")
+    conditions: list[BranchCondition] = Field(
+        default_factory=list, description="Branch conditions evaluated in order (branch steps only)"
+    )
+    skip_if: str = Field(
+        "", description="Skip this step if expression evaluates to true (e.g. 'collected.type == A')"
+    )
+    sensitive: bool = Field(False, description="Exclude collected value from logs and episodic memory")
+    step_timeout_minutes: float = Field(
+        0.0, ge=0, description="Step timeout override. 0 = use flow default_step_timeout_minutes"
     )
 
 
@@ -443,6 +519,32 @@ class FlowDefinition(BaseModel):
     state_ttl: int = Field(
         0, ge=0,
         description="Flow state TTL in seconds. 0 = use FlowsConfig.default_state_ttl",
+    )
+
+    # Phase 15 additions
+    cancel_if: list[str] = Field(
+        default_factory=list,
+        description="Keywords/regex patterns that abort the entire flow (e.g. 'cancelar', 'desistir')",
+    )
+    on_cancel: str = Field(
+        "send_message",
+        description="Action on cancel_if match: 'send_message' | 'escalate' | 'none'",
+    )
+    cancel_message: str = Field(
+        "Tudo bem! Se precisar de mais ajuda, é só chamar.",
+        description="Message sent to user when flow is cancelled",
+    )
+    default_step_timeout_minutes: float = Field(
+        0.0, ge=0,
+        description="Default step timeout in minutes. 0 = disabled",
+    )
+    default_timeout_action: str = Field(
+        "re_ask",
+        description="Timeout action: 're_ask' | 'cancel' | 'escalate'",
+    )
+    default_timeout_message: str = Field(
+        "",
+        description="Re-ask message on timeout. Empty = repeat original step message",
     )
 
     @field_validator("trigger_regex", mode="before")

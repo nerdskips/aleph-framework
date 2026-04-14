@@ -1,8 +1,18 @@
 # Phase 15 — Flow Engine v2: Conditional, Validated, Dynamic Flows
 
-> **Status:** Planned — implement after Phase 11 (Media Processing)
+> **Status:** In progress — design finalized 2026-04-11
 >
-> **Goal:** Upgrade the flow engine from a rigid script runner to an enterprise-grade conditional workflow engine. Adds lookup steps (external API/CRM mid-flow), branch steps (conditional jumps), per-step validation with retries, variable templating, sensitive field marking, step timeouts, and webhook retry with backoff.
+> **Goal:** Upgrade the flow engine from a rigid script runner to an enterprise-grade conditional workflow engine. Adds lookup steps (external API/CRM mid-flow), branch steps (conditional jumps), per-step tool-based validation with LLM injection, variable templating, sensitive field marking, step timeouts, and webhook retry with backoff.
+
+## Design decisions (finalized 2026-04-11)
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| `set` step | **DROPPED** | Tool use already handles data transformation — redundant |
+| Validation approach | **Tool-based only** (`validate.tool`) | Developer configures a tool; engine calls it with the collected answer; no hardcoded regex/type/webhook in the engine |
+| Validation tool return convention | **Option A**: `{"valid": bool, "message": str}` | Simple, predictable contract |
+| Validation error response | **LLM injection** | On `valid=false`, tool's `message` is injected into the LLM context so the agent responds naturally — no brick-like automated messages |
+| Lookup `on_error` default | `escalate` | Safe default: don't silently swallow CRM failures |
 
 ---
 
@@ -30,8 +40,9 @@ None of these require touching the pipeline, runner, or agent. Everything is sch
 message   (existing) — ask user, collect answer, advance
 lookup    (NEW)      — call external API, store result, no user interaction
 branch    (NEW)      — evaluate condition, jump to step, no user interaction
-set       (NEW)      — compute/assign a variable from collected data, no user interaction
 ```
+
+> `set` step was dropped — tool use already handles data transformation.
 
 ### New cross-cutting features
 

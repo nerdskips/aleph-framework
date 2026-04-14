@@ -33,6 +33,7 @@ class FlowState:
     collected: dict = field(default_factory=dict)
     started_at: float = field(default_factory=time.time)
     step_started_at: float = field(default_factory=time.time)
+    retry_counts: dict = field(default_factory=dict)  # step_id → retry count
 
     def to_dict(self) -> dict:
         return {
@@ -41,6 +42,7 @@ class FlowState:
             "collected": self.collected,
             "started_at": self.started_at,
             "step_started_at": self.step_started_at,
+            "retry_counts": self.retry_counts,
         }
 
     def to_json(self) -> str:
@@ -54,6 +56,7 @@ class FlowState:
             collected=data.get("collected", {}),
             started_at=data.get("started_at", 0.0),
             step_started_at=data.get("step_started_at", 0.0),
+            retry_counts=data.get("retry_counts", {}),
         )
 
     @classmethod

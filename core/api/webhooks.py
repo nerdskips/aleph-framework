@@ -116,7 +116,7 @@ async def lifespan(app: FastAPI):
     # Init FlowEngine (only if flows.enabled)
     if _registry.config.flows.enabled:
         from core.flows import FlowEngine
-        _flow_engine = FlowEngine(_registry.config.flows)
+        _flow_engine = FlowEngine(_registry.config.flows, tools=_registry.config.tools)
         logger.info("FlowEngine initialized with %d flow(s)", len(_registry.config.flows.flows))
 
     # Boot EpisodicMemory (always on — falls back to in-memory if Redis unavailable)

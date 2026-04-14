@@ -818,7 +818,7 @@ async def _chat_loop(name: str, agent_dir):
             )
         else:
             from core.flows import FlowEngine
-            flow_engine = FlowEngine(registry.config.flows)
+            flow_engine = FlowEngine(registry.config.flows, tools=registry.config.tools)
             console.print(f"  [green]✓[/green] Flows: {len(registry.config.flows.flows)} flow(s) loaded")
 
     console.print("\n💬 Interactive mode — type 'quit' to exit")
