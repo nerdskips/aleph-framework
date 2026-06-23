@@ -185,6 +185,21 @@ def test_should_not_filter_valid_message():
     assert reason is None
 
 
+def test_should_filter_unknown_type():
+    """Unknown/future Z-API event types that are not ReceivedCallback must be filtered."""
+    config = _minimal_config()
+    payload = {
+        "phone": "5511999999999", "messageId": "m1", "fromMe": False, "fromApi": False,
+        "isGroup": False, "isNewsletter": False, "broadcast": False,
+        "type": "TemplateCallback",
+        "text": {"message": "template message"},
+    }
+    msg = ZAPIAdapter.extract(payload)
+    result = ZAPIAdapter.should_filter(msg, config)
+    assert result is not None  # should be filtered
+    assert "TemplateCallback" in result
+
+
 # ---------------------------------------------------------------------------
 # ZAPIAdapter.is_human_takeover / is_human_reply
 # ---------------------------------------------------------------------------
@@ -233,6 +248,28 @@ def test_is_not_human_reply_wrong_phone():
     msg = ZAPIAdapter.extract(payload)
     responsible = ["5534999999999"]
     assert ZAPIAdapter.is_human_reply(msg, responsible) is False
+
+
+def test_is_human_reply_with_br_digit_normalization():
+    """Responsible list has 9-digit variant (13 chars: 55 + DDD + 9XXXXXXXX).
+    Incoming sender_id is 8-digit variant (12 chars: 55 + DDD + XXXXXXXX).
+    The normalization logic strips the 9th digit so both variants match.
+    """
+    # responsible_phones has the 9-digit (13-char) form: 55 + 34 + 9 + 8 digits
+    responsible_9digit = "5534912345678"  # len=13, starts with "55"
+    # incoming message uses the 8-digit (12-char) form: 55 + 34 + 8 digits
+    # normalization: rp[:4] + rp[5:] removes the 9 → "5534" + "12345678" = "553412345678"
+    incoming_8digit = "553412345678"  # len=12
+
+    payload = {
+        "phone": incoming_8digit,
+        "messageId": "m1", "fromMe": False, "fromApi": False,
+        "isGroup": False, "isNewsletter": False, "broadcast": False,
+        "type": "ReceivedCallback", "text": {"message": "resposta"},
+        "referenceMessageId": "notif-br-001",
+    }
+    msg = ZAPIAdapter.extract(payload)
+    assert ZAPIAdapter.is_human_reply(msg, [responsible_9digit]) is True
 
 
 # ---------------------------------------------------------------------------

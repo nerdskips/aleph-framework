@@ -70,6 +70,12 @@ def _resolve_embedding_credentials() -> tuple[str, str]:
     provider = os.environ.get("LLM_PROVIDER", "").lower().strip()
     if provider and provider in _PROVIDER_MAP:
         p = _PROVIDER_MAP[provider]
+        if provider == "bifrost" and p["env_url"] and not os.environ.get(p["env_url"]):
+            logger.warning(
+                "LLM_PROVIDER=bifrost but %s is not set — falling back to %s",
+                p["env_url"],
+                p["default_url"],
+            )
         url = os.environ.get(p["env_url"], p["default_url"]) if p["env_url"] else p["default_url"]
         key = os.environ.get(p["env_key"], p["default_key"])
         return url, key

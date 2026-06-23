@@ -76,6 +76,10 @@ class ZAPIAdapter:
         if msg_type in always_filter:
             return f"filtered_type:{msg_type}"
 
+        # Guard against unknown future event types — only ReceivedCallback is processed
+        if msg_type and msg_type != "ReceivedCallback":
+            return f"filtered_type:{msg_type}"
+
         # Filter groups / newsletters / broadcasts
         if messaging.filter_groups and message.metadata.get("is_group"):
             return "filtered:group"

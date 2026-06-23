@@ -227,6 +227,7 @@ async def webhook_zapi(request: Request):
                     "media_type": message.media_type,
                     "media_url": message.media_url,
                     "media_mimetype": message.media_mimetype,
+                    "text": message.text,
                 },
                 _registry.config,
             )
