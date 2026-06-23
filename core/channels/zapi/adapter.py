@@ -65,15 +65,8 @@ class ZAPIAdapter:
         messaging = config.messaging
         msg_type = message.metadata.get("type", "")
 
-        # Filter by Z-API event type
+        # Filter by Z-API event type (user-configured or any non-ReceivedCallback)
         if msg_type in messaging.filter_types:
-            return f"filtered_type:{msg_type}"
-
-        always_filter = {
-            "DeliveryCallback", "ReadCallback", "PresenceCallback",
-            "StatusCallback", "ConnStatusCallback",
-        }
-        if msg_type in always_filter:
             return f"filtered_type:{msg_type}"
 
         # Guard against unknown future event types — only ReceivedCallback is processed
