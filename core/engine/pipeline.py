@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import time
 
+from core.channels.base import ChannelSender
 from core.engine.runner import run_agent
 from core.guardrails.input import ClassificationResult, classify_input
 from core.guardrails.output import OutputGuardrailResult, check_output
@@ -73,7 +74,7 @@ async def process_message(
     message_history: list[dict] | None = None,
     phone: str = "",
     redis_session=None,
-    sender=None,
+    sender: ChannelSender | None = None,
     habits_db=None,
     knowledge_db=None,
     flow_engine=None,

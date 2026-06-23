@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from core.channels.base import ChannelSender
 from core.session.redis_escalation import EscalationData
 
 logger = logging.getLogger("aleph.human")
@@ -74,7 +75,7 @@ def build_notification_message(
 
 async def escalate_to_human(
     redis_session,
-    sender,
+    sender: ChannelSender,
     config,
     client_phone: str,
     original_message: str,
@@ -147,7 +148,7 @@ async def escalate_to_human(
 
 async def handle_human_response(
     redis_session,
-    sender,
+    sender: ChannelSender,
     registry,
     responsible_phone: str,
     human_instruction: str,

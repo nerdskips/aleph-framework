@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
+from core.channels.zapi.adapter import ZAPIAdapter
 from core.media.processor import process_media
-from core.messaging.zapi_filter import extract_message, should_filter
 from core.registry.schema import FrameworkConfig
 
 
@@ -64,7 +64,7 @@ async def test_process_media_catches_exception():
     assert result == ""
 
 
-# --- zapi_filter media extraction tests ---
+# --- ZAPIAdapter media extraction tests ---
 
 
 def test_extract_message_audio_metadata():
@@ -73,10 +73,10 @@ def test_extract_message_audio_metadata():
         "type": "ReceivedCallback",
         "audio": {"audioUrl": "https://cdn.zapi.app/audio.ogg", "mimeType": "audio/ogg"},
     }
-    msg = extract_message(payload)
-    assert msg["media_type"] == "audio"
-    assert msg["media_url"] == "https://cdn.zapi.app/audio.ogg"
-    assert msg["media_mimetype"] == "audio/ogg"
+    msg = ZAPIAdapter.extract(payload)
+    assert msg.media_type == "audio"
+    assert msg.media_url == "https://cdn.zapi.app/audio.ogg"
+    assert msg.media_mimetype == "audio/ogg"
 
 
 def test_extract_message_image_metadata():
@@ -85,10 +85,10 @@ def test_extract_message_image_metadata():
         "type": "ReceivedCallback",
         "image": {"imageUrl": "https://cdn.zapi.app/photo.jpg", "caption": "olha isso", "mimeType": "image/jpeg"},
     }
-    msg = extract_message(payload)
-    assert msg["media_type"] == "image"
-    assert msg["media_url"] == "https://cdn.zapi.app/photo.jpg"
-    assert msg["text"] == "olha isso"  # caption extracted as text
+    msg = ZAPIAdapter.extract(payload)
+    assert msg.media_type == "image"
+    assert msg.media_url == "https://cdn.zapi.app/photo.jpg"
+    assert msg.text == "olha isso"  # caption extracted as text
 
 
 def test_extract_message_pdf_metadata():
@@ -101,9 +101,9 @@ def test_extract_message_pdf_metadata():
             "caption": "meu documento",
         },
     }
-    msg = extract_message(payload)
-    assert msg["media_type"] == "pdf"
-    assert msg["media_url"] == "https://cdn.zapi.app/file.pdf"
+    msg = ZAPIAdapter.extract(payload)
+    assert msg.media_type == "pdf"
+    assert msg.media_url == "https://cdn.zapi.app/file.pdf"
 
 
 def test_extract_message_text_has_no_media():
@@ -112,9 +112,9 @@ def test_extract_message_text_has_no_media():
         "type": "ReceivedCallback",
         "text": {"message": "oi"},
     }
-    msg = extract_message(payload)
-    assert msg["media_type"] is None
-    assert msg["media_url"] is None
+    msg = ZAPIAdapter.extract(payload)
+    assert msg.media_type is None
+    assert msg.media_url is None
 
 
 def test_should_filter_allows_audio_when_media_enabled():
@@ -123,18 +123,15 @@ def test_should_filter_allows_audio_when_media_enabled():
         agent={"name": "Bot", "model": "gpt-4o-mini"},
         media={"enabled": True, "supported_types": ["audio"]},
     )
-    msg = {
+    payload = {
         "phone": "+5511999",
-        "text": "",  # no text — pure audio
-        "media_type": "audio",
-        "media_url": "https://cdn.zapi.app/audio.ogg",
-        "from_me": False, "from_api": False,
-        "is_group": False, "is_newsletter": False, "is_broadcast": False,
+        "fromMe": False, "fromApi": False,
+        "isGroup": False, "isNewsletter": False, "broadcast": False,
         "type": "ReceivedCallback",
-        "reference_message_id": "",
-        "raw": {},
+        "audio": {"audioUrl": "https://cdn.zapi.app/audio.ogg", "mimeType": "audio/ogg"},
     }
-    result = should_filter(msg, config)
+    msg = ZAPIAdapter.extract(payload)
+    result = ZAPIAdapter.should_filter(msg, config)
     assert result is None  # allowed through
 
 
@@ -144,16 +141,13 @@ def test_should_filter_blocks_audio_when_media_disabled():
         agent={"name": "Bot", "model": "gpt-4o-mini"},
         media={"enabled": False},
     )
-    msg = {
+    payload = {
         "phone": "+5511999",
-        "text": "",
-        "media_type": "audio",
-        "media_url": "https://cdn.zapi.app/audio.ogg",
-        "from_me": False, "from_api": False,
-        "is_group": False, "is_newsletter": False, "is_broadcast": False,
+        "fromMe": False, "fromApi": False,
+        "isGroup": False, "isNewsletter": False, "broadcast": False,
         "type": "ReceivedCallback",
-        "reference_message_id": "",
-        "raw": {},
+        "audio": {"audioUrl": "https://cdn.zapi.app/audio.ogg", "mimeType": "audio/ogg"},
     }
-    result = should_filter(msg, config)
+    msg = ZAPIAdapter.extract(payload)
+    result = ZAPIAdapter.should_filter(msg, config)
     assert result == "filtered:no_text"

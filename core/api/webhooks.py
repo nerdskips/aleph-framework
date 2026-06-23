@@ -29,14 +29,9 @@ from fastapi.responses import JSONResponse
 
 from core.registry.registry import AgentRegistry
 from core.session.redis import RedisSession
-from core.messaging.zapi_filter import (
-    extract_message,
-    should_filter,
-    is_human_takeover_message,
-    is_human_reply,
-)
+from core.channels.zapi.adapter import ZAPIAdapter
+from core.channels.zapi.sender import ZAPISender
 from core.engine.pipeline import process_message
-from core.messaging.zapi_send import ZAPISender
 from core.session.memory import EpisodicMemory
 
 logger = logging.getLogger("aleph.api")
@@ -177,35 +172,31 @@ async def webhook_zapi(request: Request):
     except Exception:
         return JSONResponse({"error": "invalid json"}, status_code=400)
 
-    # Extract message
-    message = extract_message(payload)
+    # Extract message via Z-API adapter
+    message = ZAPIAdapter.extract(payload)
     if not message:
         return JSONResponse({"status": "ignored"})
 
-    phone = message["phone"]
-    text = message["text"]
-    message_id = message["message_id"]
+    phone = message.sender_id
+    text = message.text
+    message_id = message.message_id
 
     # --- Filter ---
-    filter_reason = should_filter(message, _registry.config)
+    filter_reason = ZAPIAdapter.should_filter(message, _registry.config)
     if filter_reason:
         logger.debug("Filtered [%s]: %s", filter_reason, phone)
         return JSONResponse({"status": "filtered", "reason": filter_reason})
 
     # --- Human reply detection (escalation response) ---
-    if is_human_reply(message, _registry.config.human.responsible_phones):
-        reference_id = message.get("reference_message_id", "")
+    if ZAPIAdapter.is_human_reply(message, _registry.config.human.responsible_phones):
+        reference_id = message.reference_message_id
         if reference_id:
-            logger.info(
-                "Human reply detected from %s (ref: %s)", phone, reference_id,
-            )
-            asyncio.create_task(
-                _handle_escalation_reply(phone, text, reference_id)
-            )
+            logger.info("Human reply detected from %s (ref: %s)", phone, reference_id)
+            asyncio.create_task(_handle_escalation_reply(phone, text, reference_id))
             return JSONResponse({"status": "escalation_reply_received"})
 
     # --- Takeover detection ---
-    if is_human_takeover_message(message):
+    if ZAPIAdapter.is_human_takeover(message):
         raw_text = text.strip().upper()
         release_keyword = _registry.config.human.release_keyword
 
@@ -228,15 +219,21 @@ async def webhook_zapi(request: Request):
         return JSONResponse({"status": "duplicate"})
 
     # --- Media processing (pre-buffer) ---
-    if _registry.config.media.enabled and message.get("media_type"):
+    if _registry.config.media.enabled and message.media_type:
         try:
             from core.media.processor import process_media
-            processed = await process_media(message, _registry.config)
+            processed = await process_media(
+                {
+                    "media_type": message.media_type,
+                    "media_url": message.media_url,
+                    "media_mimetype": message.media_mimetype,
+                },
+                _registry.config,
+            )
             if processed:
                 text = processed
             elif not text or text.startswith("["):
-                # No caption fallback and processing failed/unsupported — skip
-                logger.debug("Media message skipped (no processable content): %s", message.get("media_type"))
+                logger.debug("Media message skipped (no processable content): %s", message.media_type)
                 return JSONResponse({"status": "filtered", "reason": "media_unprocessable"})
         except Exception as e:
             logger.error("Media pre-processing error: %s", str(e)[:200])
@@ -247,9 +244,7 @@ async def webhook_zapi(request: Request):
     if phone in _buffer_timers:
         _buffer_timers[phone].cancel()
 
-    _buffer_timers[phone] = asyncio.create_task(
-        _process_after_buffer(phone)
-    )
+    _buffer_timers[phone] = asyncio.create_task(_process_after_buffer(phone))
 
     return JSONResponse({"status": "buffered"})
 
