@@ -76,7 +76,6 @@ async def test_generate_embedding_calls_openai(monkeypatch):
 
 
 async def test_generate_embedding_raises_on_http_error(monkeypatch):
-    import httpx
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.delenv("BIFROST_URL", raising=False)
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
