@@ -137,7 +137,7 @@ def test_extract_from_api_message():
 # ZAPIAdapter.should_filter
 # ---------------------------------------------------------------------------
 
-def test_should_filter_group(monkeypatch):
+def test_should_filter_group():
     config = _minimal_config()
     payload = {
         "phone": "123", "messageId": "m1", "fromMe": False, "fromApi": False,
@@ -246,7 +246,6 @@ def test_zapi_sender_is_channel_sender():
 
 
 async def test_zapi_sender_dry_run_does_not_call_http():
-    from core.registry.schema import DebugConfig
     config = _minimal_config()
     config.debug.dry_run = True
     sender = ZAPISender(config)

@@ -15,6 +15,7 @@ from core.registry.schema import FrameworkConfig
 logger = logging.getLogger("aleph.channels.zapi")
 
 CHANNEL = "whatsapp"
+_MEDIA_PLACEHOLDERS: frozenset[str] = frozenset({"[audio]", "[sticker]"})
 
 
 class ZAPIAdapter:
@@ -108,8 +109,7 @@ class ZAPIAdapter:
 
         # Filter empty text — allow media through when media processing is enabled
         # Placeholder texts (e.g. "[audio]", "[sticker]") count as empty for filtering
-        _PLACEHOLDERS = {"[audio]", "[sticker]"}
-        has_real_text = bool(message.text) and message.text not in _PLACEHOLDERS
+        has_real_text = bool(message.text) and message.text not in _MEDIA_PLACEHOLDERS
         if not has_real_text:
             if config.media.enabled and message.media_type in [t.value for t in config.media.supported_types]:
                 pass  # media will be processed pre-buffer
